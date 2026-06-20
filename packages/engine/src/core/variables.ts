@@ -2,13 +2,31 @@
  * Reflection helpers for reading/writing instance and global variables by
  * name, mirroring GMS's variable_instance_* and variable_global_* families.
  *
- * Globals live in `global_store`; user/generated code can import it directly
- * (e.g. `global_store.score = 0`) and the variable_global_* functions stay in
- * sync with it.
+ * Globals live in `global_store`, also exposed as `global` (GMS `global.score`);
+ * user/generated code can read/write them directly (e.g. `global.score += 1`) and
+ * the variable_global_* functions stay in sync with it.
  */
+
+import { get_score, set_score, get_lives, set_lives, get_health, set_health } from './game_state.js'
 
 /** Shared key/value store backing the variable_global_* functions. */
 export const global_store: Record<string, any> = {}
+
+/**
+ * The GMS `global.` namespace — the same object as `global_store`, so `global.x` and the
+ * variable_global_* reflection share one store. The built-in `score` / `lives` / `health` are
+ * accessor properties that delegate to game_state, so `global.lives -= 1` still arms the
+ * No More Lives / No More Health events. (ESM imported bindings can't be reassigned, which is why
+ * GMS's bare writable `score` becomes `global.score` here.)
+ */
+export const global = global_store
+for (const [key, getter, setter] of [
+    ['score',  get_score,  set_score],
+    ['lives',  get_lives,  set_lives],
+    ['health', get_health, set_health],
+] as const) {
+    Object.defineProperty(global, key, { get: getter, set: setter, enumerable: false, configurable: true })
+}
 
 // =========================================================================
 // Instance variables

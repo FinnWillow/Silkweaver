@@ -48,7 +48,9 @@ export class gm_object extends instance {
     // Physics metadata. `static physics = true` makes every instance a matter.js body
     // (created on the first physics step). density ≤ 0 ⇒ static (immovable) body.
     public static physics:            boolean = false
-    public static physics_shape:      'box' | 'circle' = 'box'
+    // 'box' | 'circle' — typed as string so a subclass `static physics_shape = 'box'` (the natural
+    // GMS-style form) doesn't widen to a type the literal union rejects. Only 'circle' is special-cased.
+    public static physics_shape:      string  = 'box'
     public static physics_density:    number  = 0.5
     public static physics_restitution: number = 0.1
     public static physics_friction:   number  = 0.2

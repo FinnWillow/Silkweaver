@@ -17,6 +17,18 @@ export const mb_middle = 3  // Middle mouse button
 export const mb_any    = 4  // Any button
 
 // =========================================================================
+// Live read-only globals (GMS `mouse_x` / `mouse_y`)
+// =========================================================================
+// Room-space mouse position, refreshed every step by mouse_manager.update_room_position(). Exported
+// as live `let` bindings so object code can read them bare (`mouse_x`) like GMS — the build's inject
+// shim preserves the live binding, and they're effectively read-only there (an imported binding).
+
+/** Mouse X in ROOM coordinates (view-adjusted). Read-only; updated each step. GMS `mouse_x`. */
+export let mouse_x = 0
+/** Mouse Y in ROOM coordinates (view-adjusted). Read-only; updated each step. GMS `mouse_y`. */
+export let mouse_y = 0
+
+// =========================================================================
 // Mouse state manager
 // =========================================================================
 
@@ -142,6 +154,9 @@ export class mouse_manager {
     public static update_room_position(view_x: number, view_y: number): void {
         this.mouse_x = this.window_x + view_x
         this.mouse_y = this.window_y + view_y
+        // Mirror into the bare read-only globals (GMS `mouse_x` / `mouse_y`).
+        mouse_x = this.mouse_x
+        mouse_y = this.mouse_y
     }
 
     /** Clears pressed/released state and wheel flags at the end of each step. */

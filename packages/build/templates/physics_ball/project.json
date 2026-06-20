@@ -1,0 +1,53 @@
+{
+  "name": "physics_ball",
+  "version": "1.0.0",
+  "engineVersion": "1.3.1",
+  "settings": {
+    "roomSpeed": 165,
+    "windowWidth": 640,
+    "windowHeight": 480,
+    "startRoom": "room_main",
+    "displayColor": "#1a1a2e"
+  },
+  "resources": {
+    "sprites": {
+      "spr_paddle": {
+        "name": "spr_paddle"
+      },
+      "spr_ball": {
+        "name": "spr_ball"
+      },
+      "spr_wall": {
+        "name": "spr_wall"
+      },
+      "spr_tracker": {
+        "name": "spr_tracker"
+      }
+    },
+    "sounds": {},
+    "backgrounds": {},
+    "paths": {},
+    "scripts": {},
+    "fonts": {},
+    "timelines": {},
+    "objects": {
+      "obj_paddle": {
+        "name": "obj_paddle"
+      },
+      "obj_ball": {
+        "name": "obj_ball"
+      },
+      "obj_wall": {
+        "name": "obj_wall"
+      },
+      "obj_tracker": {
+        "name": "obj_tracker"
+      }
+    },
+    "rooms": {
+      "room_main": {
+        "name": "room_main"
+      }
+    }
+  }
+}

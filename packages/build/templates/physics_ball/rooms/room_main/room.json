@@ -1,0 +1,77 @@
+{
+  "width": 640,
+  "height": 480,
+  "room_speed": 60,
+  "persistent": false,
+  "creation_code": "",
+  "instances": [
+    {
+      "id": 1,
+      "object_name": "obj_paddle",
+      "x": 320,
+      "y": 416,
+      "scale_x": 1,
+      "scale_y": 1,
+      "rotation": 0,
+      "creation_code": ""
+    },
+    {
+      "id": 2,
+      "object_name": "obj_ball",
+      "x": 320,
+      "y": 96,
+      "scale_x": 1,
+      "scale_y": 1,
+      "rotation": 0,
+      "creation_code": ""
+    },
+    {
+      "id": 24,
+      "object_name": "obj_wall",
+      "x": 0,
+      "y": 0,
+      "scale_x": 1,
+      "scale_y": 15,
+      "rotation": 0,
+      "creation_code": ""
+    },
+    {
+      "id": 42,
+      "object_name": "obj_wall",
+      "x": 32,
+      "y": 0,
+      "scale_x": 18,
+      "scale_y": 1,
+      "rotation": 0,
+      "creation_code": ""
+    },
+    {
+      "id": 62,
+      "object_name": "obj_wall",
+      "x": 608,
+      "y": 0,
+      "scale_x": 1,
+      "scale_y": 15,
+      "rotation": 0,
+      "creation_code": ""
+    },
+    {
+      "id": 63,
+      "object_name": "obj_tracker",
+      "x": 48,
+      "y": 48,
+      "scale_x": 1,
+      "scale_y": 1,
+      "rotation": 0,
+      "creation_code": ""
+    }
+  ],
+  "backgrounds": [],
+  "views": [],
+  "tiles": [],
+  "bg_color": "#1a1a2e",
+  "bg_show_color": true,
+  "physics_world": true,
+  "physics_gravity_x": 0,
+  "physics_gravity_y": 5
+}

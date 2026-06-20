@@ -1,0 +1,22 @@
+{
+  "origin_x": 0,
+  "origin_y": 0,
+  "width": 32,
+  "height": 32,
+  "anim_speed": 15,
+  "mask_type": "rectangle",
+  "mask_x": 0,
+  "mask_y": 0,
+  "mask_w": 32,
+  "mask_h": 32,
+  "scale_mode": "tile",
+  "slice_left": 1,
+  "slice_top": 1,
+  "slice_right": 1,
+  "slice_bottom": 1,
+  "frames": [
+    {
+      "name": "0.png"
+    }
+  ]
+}

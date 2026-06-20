@@ -138,6 +138,22 @@ export abstract class game_loop {
     }
 
     /**
+     * Refreshes the room-space mouse position (`mouse_x` / `mouse_y`) from the active view's offset,
+     * so they're current before any Step event reads them. No views → the offset is (0, 0), i.e. the
+     * room and window share coordinates.
+     */
+    private static _refresh_mouse_room_position(): void {
+        let vx = 0, vy = 0
+        const rm = this.room
+        if (rm && rm.view_enabled) {
+            for (let i = 0; i < rm.view_visible.length; i++) {
+                if (rm.view_visible[i]) { vx = rm.view_xview[i] ?? 0; vy = rm.view_yview[i] ?? 0; break }
+            }
+        }
+        mouse_manager.update_room_position(vx, vy)
+    }
+
+    /**
      * Runs all update events in GMS order.
      * Create and destroy events run once and are cleared after execution.
      * Input polling happens before events; end_step clears edge-trigger state after.
@@ -145,6 +161,7 @@ export abstract class game_loop {
     private static update(): void {
         // Poll input devices before any game logic runs
         gamepad_manager.poll()
+        this._refresh_mouse_room_position()
 
         const createEvents = [...(this.update_events.get(EVENT_TYPE.create) ?? [])]
         this.update_events.set(EVENT_TYPE.create, [])

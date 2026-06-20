@@ -2,6 +2,7 @@ import { EVENT_TYPE } from "./game_event.js";
 import { game_loop } from "./game_loop.js";
 import type { instance } from "./instance.js";
 import { resource } from "./resource.js";
+import { physics_world_create } from "../physics/physics_world.js";
 
 /**
  * Data structure representing a single tile in a room.
@@ -32,6 +33,9 @@ export class room extends resource {
     public room_caption: string = `Room ${this.id}`             // Window caption when room is active
     public room_speed: number = 60                              // Target frames per second for this room
     public room_persistent: boolean = false                     // Whether room state persists when leaving
+    public physics_world: boolean = false                       // Whether this room runs a matter.js physics world
+    public physics_gravity_x: number = 0                        // World gravity X (room units per step)
+    public physics_gravity_y: number = 0                        // World gravity Y (room units per step)
     public room_previous: number = 0                            // ID of the previous room in order
     public room_next: number = 0                                // ID of the next room in order
     public creation_code: (() => void) | null = null            // Room creation code, run once on room start
@@ -281,6 +285,11 @@ export class room extends resource {
         }
         this.reset_contents()
         this.built = true
+        // Recreate the physics world from scratch on every (re)build. A restart tears down and rebuilds
+        // all bodies; reusing the same matter.js Engine leaves stale broadphase/pair state that silently
+        // drops collisions (the ball tunnels through walls). A fresh world avoids that. Bodies are then
+        // recreated lazily by phy_ensure_body on the first physics step.
+        if (this.physics_world) physics_world_create(this.physics_gravity_x, this.physics_gravity_y)
         this.builder?.()
     }
 
@@ -861,4 +870,65 @@ export class room extends resource {
         const hview = this.view_hview[index] ?? 1
         return yport + ((y - yview) / hview) * hport
     }
+}
+
+// =========================================================================
+// Room name registry + GMS-style free functions
+// =========================================================================
+// Free functions operate on the CURRENT room (game_loop.room), like GMS — no `game_loop.room.`
+// prefix. A room target can be a project name ('rm_level2'), a room instance, or a resource id.
+
+/** Project name → room instance. Populated by the generated bootstrap via room_register_name. */
+const _room_names: Map<string, room> = new Map()
+
+/** Registers a room under its project name (called by the build's generated entry). */
+export function room_register_name(name: string, rm: room): void {
+    _room_names.set(name, rm)
+}
+
+/** Resolves a room by project name, or undefined. */
+export function room_get(name: string): room | undefined {
+    return _room_names.get(name)
+}
+
+/** Resolves a room target (name / instance / id) to a room, or null. */
+function _resolve_room(target: string | room | number): room | null {
+    if (typeof target === 'string') return _room_names.get(target) ?? null
+    if (typeof target === 'number') { const r = resource.findByID(target); return r instanceof room ? r : null }
+    return target instanceof room ? target : null
+}
+
+/** Goes to a room — by name ('rm_level2'), room instance, or id (GMS `room_goto`). */
+export function room_goto(target: string | room | number): void {
+    const rm = _resolve_room(target)
+    if (!rm) { console.error('[room_goto] unknown room:', target); return }
+    game_loop.change_room(rm)
+}
+
+/** Restarts the current room, rebuilding its non-persistent instances (GMS `room_restart`). */
+export function room_restart(): void {
+    if (game_loop.room) game_loop.change_room(game_loop.room)
+}
+
+/** Goes to the next room in room order (GMS `room_goto_next`). */
+export function room_goto_next(): void {
+    if (game_loop.room) room_goto(game_loop.room.room_next)
+}
+
+/** Goes to the previous room in room order (GMS `room_goto_previous`). */
+export function room_goto_previous(): void {
+    if (game_loop.room) room_goto(game_loop.room.room_previous)
+}
+
+/** True if a room with the given name (or id) exists (GMS `room_exists`). */
+export function room_exists(target: string | number): boolean {
+    return _resolve_room(target) !== null
+}
+
+/** The project name of a room (the current room if omitted), or '' if unknown (GMS `room_get_name`). */
+export function room_get_name(target?: string | room | number): string {
+    const rm = target === undefined ? game_loop.room : _resolve_room(target)
+    if (!rm) return ''
+    for (const [name, r] of _room_names) if (r === rm) return name
+    return ''
 }

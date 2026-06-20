@@ -161,19 +161,33 @@ function _setup_monaco(monaco: Monaco): void {
         triggerCharacters: ['.'],
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         provideCompletionItems(model: any, position: any) {
-            const members = _this_member_models.get(model)
-            if (!members) return undefined   // not an event buffer → let TypeScript complete
             const line = model.getValueInRange({ startLineNumber: position.lineNumber, startColumn: 1, endLineNumber: position.lineNumber, endColumn: position.column })
-            if (!/\bthis\.\w*$/.test(line)) return { suggestions: [] }
             const word = model.getWordUntilPosition(position)
             const range = { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: word.startColumn, endColumn: word.endColumn }
             const K = monaco.languages.CompletionItemKind
+            const ASSIGN = '\\s*(?:[-+*/%&|^]?=(?!=)|\\*\\*=|<<=|>>>?=|\\+\\+|--)'
+
+            // `global.` — built-in score/lives/health + any `global.x = …` defined in this buffer. The
+            // accessors are added at runtime so TS types `global` as Record<…> and offers nothing; this
+            // fills the gap. Works in ANY model (full class view, event buffers, scripts).
+            if (/(?<!\.)\bglobal\.\w*$/.test(line)) {
+                const names = new Set(['score', 'lives', 'health'])
+                const gre = new RegExp('(?<!\\.)\\bglobal\\.([A-Za-z_$][\\w$]*)' + ASSIGN, 'g')
+                let gm: RegExpExecArray | null
+                while ((gm = gre.exec(model.getValue()))) names.add(gm[1]!)
+                return { suggestions: [...names].map(n => ({ label: n, kind: K.Field, insertText: n, range })) }
+            }
+
+            // `this.` — only for registered event buffers (no class context); otherwise let TS complete.
+            const members = _this_member_models.get(model)
+            if (!members) return undefined
+            if (!/\bthis\.\w*$/.test(line)) return { suggestions: [] }
             // Merge in `this.x = …` assignments typed in THIS buffer right now, so a variable just
             // created in the current event completes immediately (the registered list — engine members
             // + the object's saved vars — only refreshes on save/reload).
             const seen = new Set(members.map(m => m.name))
             const all  = [...members]
-            const re = /\bthis\.([A-Za-z_$][\w$]*)\s*(?:[-+*/%&|^]?=(?!=)|\*\*=|<<=|>>>?=|\+\+|--)/g
+            const re = new RegExp('\\bthis\\.([A-Za-z_$][\\w$]*)' + ASSIGN, 'g')
             let mm: RegExpExecArray | null
             while ((mm = re.exec(model.getValue()))) { const n = mm[1]!; if (!seen.has(n)) { seen.add(n); all.push({ name: n, method: false }) } }
             return { suggestions: all.map(mem => ({

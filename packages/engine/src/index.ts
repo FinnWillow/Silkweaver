@@ -29,7 +29,11 @@ export {
     mp_grid_get_cell, mp_grid_add_rectangle, mp_grid_clear_rectangle, mp_grid_add_instances,
     mp_grid_path, mp_potential_settings,
 } from './core/motion_planning.js'
-export { room } from './core/room.js'
+export {
+    room,
+    room_goto, room_restart, room_goto_next, room_goto_previous,
+    room_exists, room_get_name, room_get, room_register_name,
+} from './core/room.js'
 export {
     tile_add, tile_delete, tile_exists, tile_get_x, tile_get_y, tile_get_depth, tile_get_visible,
     tile_set_position, tile_set_depth, tile_set_visible, tile_set_scale, tile_set_alpha, tile_set_background,
@@ -77,6 +81,7 @@ export {
 // Instance query functions — find instances of other objects (operate on the current room)
 export {
     instance_find, instance_nearest, instance_furthest, instance_number, instance_exists,
+    instance_create, instance_destroy,
 } from './core/instance.js'
 
 // =========================================================================
@@ -171,6 +176,7 @@ export {
     mouse_manager,
     mouse_check_button, mouse_check_button_pressed, mouse_check_button_released,
     mouse_clear, mouse_wheel_up, mouse_wheel_down,
+    mouse_x, mouse_y,
     window_mouse_get_x, window_mouse_get_y, window_mouse_set,
     mb_none, mb_left, mb_right, mb_middle, mb_any,
 } from './input/mouse.js'
@@ -472,9 +478,9 @@ export {
     get_score, set_score, get_lives, set_lives, get_health, set_health,
 } from './core/game_state.js'
 
-// Variable reflection (GMS variable_instance_*/variable_global_*)
+// Variable reflection (GMS variable_instance_*/variable_global_*) + the GMS `global.` namespace
 export {
-    global_store,
+    global_store, global,
     variable_instance_get, variable_instance_set, variable_instance_exists, variable_instance_get_names,
     variable_global_get, variable_global_set, variable_global_exists, variable_global_get_names,
 } from './core/variables.js'

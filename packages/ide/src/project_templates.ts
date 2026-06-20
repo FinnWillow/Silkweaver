@@ -15,7 +15,8 @@ export interface template_def {
 
 /** The templates offered in the New Project dropdown (ids match @silkweaver/build's bundled folders). */
 export const TEMPLATES: template_def[] = [
-    { id: 'empty',      label: 'Empty',      description: 'A blank project with a single empty room.' },
-    { id: 'platformer', label: 'Platformer', description: 'A/D to move, Space to jump — gravity, solid platforms, parent-based collision.' },
-    { id: 'topdown',    label: 'Top-down',   description: 'WASD movement with parent-based wall collision (place_meeting + a _col parent).' },
+    { id: 'empty',       label: 'Empty',       description: 'A blank project with a single empty room.' },
+    { id: 'platformer',  label: 'Platformer',  description: 'A/D to move, Space to jump — gravity, solid platforms, parent-based collision.' },
+    { id: 'topdown',     label: 'Top-down',    description: 'WASD movement with parent-based wall collision (place_meeting + a _col parent).' },
+    { id: 'physics_ball', label: 'Physics Ball', description: 'Bounce a ball on a mouse paddle for score — matter.js physics (circle/box bodies, restitution, instance_nearest).' },
 ]

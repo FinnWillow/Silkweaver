@@ -251,7 +251,11 @@ async function generate_entry_code(
 ${var_name}.room_width  = ${rm_data.width  ?? 640}
 ${var_name}.room_height = ${rm_data.height ?? 480}
 ${var_name}.room_speed  = ${rm_data.room_speed ?? 60}
-${var_name}.room_persistent = ${rm_data.persistent ?? false}
+${var_name}.room_persistent = ${rm_data.persistent ?? false}${
+    room_physics[room_name]
+        ? `\n${var_name}.physics_world = true\n${var_name}.physics_gravity_x = ${room_physics[room_name]!.gx}\n${var_name}.physics_gravity_y = ${room_physics[room_name]!.gy}`
+        : ''
+}
 ${var_name}.background_show_color  = ${rm_data.bg_show_color ?? true}
 ${var_name}.background_solid_color = ${hex_to_bgr(rm_data.bg_color ?? '#000000')}${
     rm_data.creation_code && rm_data.creation_code.trim()
@@ -517,6 +521,9 @@ export default async function init(canvas: HTMLCanvasElement): Promise<void> {
     // Set up rooms
     ${room_setups.join('\n')}
 
+    // Register rooms by name (room_goto('rm_x') / room_get('rm_x') / room_exists('rm_x'))
+    ${room_names.map(n => `room_register_name('${n}', _room_${n})`).join('\n    ')}
+
     // Link room order
     ${room_var_names.map((v, i) => {
         const prev = room_var_names[i - 1]
@@ -529,7 +536,9 @@ export default async function init(canvas: HTMLCanvasElement): Promise<void> {
 
     const start = ${start_var}
     if (!start) { console.error('[Game] No rooms defined.'); return }
-${room_physics[start_room] ? `    physics_world_create(${room_physics[start_room]!.gx}, ${room_physics[start_room]!.gy})\n` : ''}    game_loop.start(start)
+    // The physics world is (re)created per-room in room.build_for_entry() from the room's
+    // physics_world/gravity fields — so it's fresh on every entry AND every restart.
+    game_loop.start(start)
 }
 `
         return entry_code

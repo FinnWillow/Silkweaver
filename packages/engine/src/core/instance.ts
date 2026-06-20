@@ -147,7 +147,7 @@ export class instance extends resource {
     // step (once x/y and any mask are set) and then drives x/y/image_angle.
     public  phy_body_id:      number = -1
     private _phy_wants:       boolean = false
-    private _phy_shape:       'box' | 'circle' = 'box'
+    private _phy_shape:       string = 'box'   // 'box' | 'circle' — anything but 'circle' is treated as a box
     private _phy_density:     number = 0.5
     private _phy_restitution: number = 0.1
     private _phy_friction:    number = 0.2
@@ -789,7 +789,7 @@ export class instance extends resource {
      * @param friction - Surface friction
      * @param sensor - True = detects overlaps without a physical response
      */
-    public phy_request(shape: 'box' | 'circle', density: number, restitution: number, friction: number, sensor: boolean): void {
+    public phy_request(shape: string, density: number, restitution: number, friction: number, sensor: boolean): void {
         this._phy_wants       = true
         this._phy_shape       = shape
         this._phy_density     = density
@@ -805,6 +805,10 @@ export class instance extends resource {
     public phy_ensure_body(): void {
         if (!this._phy_wants || this.phy_body_id >= 0) return
         if (!physics_world_get_engine()) return
+        // Refresh the bbox first: for a sprite-based body the collider is sized from it, and the body
+        // may be created (e.g. the first physics step after a room rebuild) before the instance's Step
+        // event has run update_bbox — leaving a stale/zero bbox and a wrong (32×32 default) collider.
+        update_bbox(this)
         const { w, h } = this._phy_extent()
         // The body is centred on its position, so bind it at the mask centre (origin + offset) rather
         // than at the origin itself — otherwise a non-centred origin offsets the whole simulation.
@@ -1627,4 +1631,14 @@ export function instance_furthest<T extends instance>(x: number, y: number, obj:
         if (d > best_d) { best_d = d; best = i }
     }
     return best as T | undefined
+}
+
+/** Creates an instance of `obj` at (x, y) and returns it (GMS `instance_create`, free-function form). */
+export function instance_create<T extends instance>(x: number, y: number, obj: object_arg<T>): T {
+    return instance.instance_create(x, y, obj as unknown as typeof instance) as T
+}
+
+/** Destroys the given instance (GMS `instance_destroy(id)`). For self, use `this.instance_destroy()`. */
+export function instance_destroy(inst: instance): void {
+    inst.instance_destroy()
 }

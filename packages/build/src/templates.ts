@@ -20,9 +20,10 @@ export interface template_info {
 
 /** Ordered registry of the bundled starter templates (folders live under ../templates/<id>). */
 const TEMPLATE_REGISTRY: { id: string; label: string; description: string }[] = [
-    { id: 'empty',      label: 'Empty',      description: 'A blank project with a single empty room.' },
-    { id: 'platformer', label: 'Platformer', description: 'A/D to move, Space to jump — gravity, solid platforms, parent-based collision.' },
-    { id: 'topdown',    label: 'Top-down',   description: 'WASD movement with parent-based wall collision (place_meeting + a _col parent).' },
+    { id: 'empty',       label: 'Empty',       description: 'A blank project with a single empty room.' },
+    { id: 'platformer',  label: 'Platformer',  description: 'A/D to move, Space to jump — gravity, solid platforms, parent-based collision.' },
+    { id: 'topdown',     label: 'Top-down',    description: 'WASD movement with parent-based wall collision (place_meeting + a _col parent).' },
+    { id: 'physics_ball', label: 'Physics Ball', description: 'Bounce a ball on a mouse paddle for score — matter.js physics (circle/box bodies, restitution, instance_nearest).' },
 ]
 
 /** Absolute path to the bundled templates directory (sibling of dist/). */
