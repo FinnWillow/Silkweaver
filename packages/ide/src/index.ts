@@ -19,7 +19,7 @@ import { undo_push, undo_undo, undo_redo, undo_clear }               from './ser
 import { script_editor_open, script_editor_open_smart, inject_project_types } from './editors/script_editor.js'
 import { sprite_editor_open }      from './editors/sprite_editor.js'
 import { object_editor_open }      from './editors/object_editor.js'
-import { room_editor_open }        from './editors/room_editor.js'
+import { room_editor_open, room_editor_set_default_speed } from './editors/room_editor.js'
 import { sound_editor_open }       from './editors/sound_editor.js'
 import { background_editor_open }  from './editors/background_editor.js'
 import { font_editor_open }        from './editors/font_editor.js'
@@ -696,7 +696,11 @@ async function on_export_exe(platform: string, arch: string, label: string): Pro
 function on_edit_game_settings(): void {
     if (!_project) { _alert('Open a project first.'); return }
     const room_names = Object.keys(_project.resources.rooms)
-    settings_editor_open(_workspace, _project, room_names, _mark_unsaved)
+    settings_editor_open(_workspace, _project, room_names, () => {
+        _mark_unsaved()
+        // Keep new-room default speed in sync if the project default was just changed.
+        if (_project) room_editor_set_default_speed(_project.settings.roomSpeed ?? 60)
+    })
 }
 
 // =========================================================================
@@ -737,6 +741,7 @@ export function get_project_resource_names(category: resource_category): string[
 
 function _set_project(state: project_state, _dir: FileSystemDirectoryHandle | null): void {
     _project = state
+    room_editor_set_default_speed(state.settings.roomSpeed ?? 60)   // new rooms inherit the project default
     status_set_project(state.name)
     status_set_unsaved(false)
     _tree.load(state)

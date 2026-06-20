@@ -7,6 +7,7 @@ import { gamepad_manager } from "../input/gamepad.js"
 import { touch_manager } from "../input/touch.js"
 import { physics_world_get_engine, physics_world_step } from "../physics/physics_world.js"
 import { _consume_no_more_lives, _consume_no_more_health, _reset_game_state } from "./game_state.js"
+import { run_as } from "./active_instance.js"
 
 /** Injected by renderer.init() — called at the start of every draw frame. */
 let _begin_frame: (() => void) | null = null
@@ -332,7 +333,7 @@ export abstract class game_loop {
     ): void {
         if (!this.room) return
         for (const inst of this.room.instance_get_all()) {
-            if (inst.active) inst[method]()
+            if (inst.active) run_as(inst, () => inst[method]())
         }
     }
 }

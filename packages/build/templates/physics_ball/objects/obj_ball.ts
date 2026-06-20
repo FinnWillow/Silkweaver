@@ -9,15 +9,15 @@ export class obj_ball extends gm_object {
     stride = 0.2;
     on_step(): void {
         // collide and bounce
-        let paddle = instance_nearest(this.x, this.y, obj_paddle);
+        let paddle = instance_nearest(sw.x, sw.y, obj_paddle);
 
-        if (this.place_meeting(this.x, this.y + this.phy_speed_y, obj_paddle)) {
+        if (sw.place_meeting(sw.x, sw.y + sw.phy_speed_y, obj_paddle)) {
             global.score += 1;
-            this.phy_speed_y = -this.bouce;
-            this.phy_speed_x = (paddle.x - this.x) * -this.stride;
+            sw.phy_speed_y = -inst.bouce;
+            sw.phy_speed_x = (paddle.x - sw.x) * -inst.stride;
         }
 
-        if (this.y > 1000) {
+        if (sw.y > 1000) {
             game_restart();
         }
     }

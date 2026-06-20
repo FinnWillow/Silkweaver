@@ -124,6 +124,20 @@ function _build_ui(): void {
     sep.style.cssText = 'flex:1;'
     toolbar.appendChild(sep)
 
+    // Copy every currently-visible (filtered) message as newline-separated text.
+    const copy_all_btn = document.createElement('button')
+    copy_all_btn.className = 'sw-btn'
+    copy_all_btn.textContent = 'Copy'
+    copy_all_btn.title = 'Copy all shown messages'
+    copy_all_btn.addEventListener('click', async () => {
+        const text = _entries.filter(e => _filter.has(e.level)).map(e => e.text).join('\n')
+        if (!text) return
+        const ok = await _copy_text(text)
+        copy_all_btn.textContent = ok ? 'Copied' : 'Failed'
+        setTimeout(() => { copy_all_btn.textContent = 'Copy' }, 1200)
+    })
+    toolbar.appendChild(copy_all_btn)
+
     const clear_btn = document.createElement('button')
     clear_btn.className = 'sw-btn'
     clear_btn.textContent = 'Clear'
@@ -168,8 +182,44 @@ function _append_row(entry: log_entry): void {
     const text_span = document.createElement('span')
     text_span.className = 'sw-con-text'
     text_span.textContent = entry.text
-    row.append(time_span, text_span)
+
+    // Per-row copy button (revealed on hover) — copies just this message's text.
+    const copy_btn = document.createElement('button')
+    copy_btn.className = 'sw-con-copy'
+    copy_btn.textContent = '⧉'
+    copy_btn.title = 'Copy this message'
+    copy_btn.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        const ok = await _copy_text(entry.text)
+        copy_btn.textContent = ok ? '✓' : '✕'
+        copy_btn.classList.add('copied')
+        setTimeout(() => { copy_btn.textContent = '⧉'; copy_btn.classList.remove('copied') }, 1000)
+    })
+
+    row.append(time_span, text_span, copy_btn)
     _list_el.appendChild(row)
+}
+
+/**
+ * Copies text to the clipboard, falling back to a hidden textarea + execCommand when the async
+ * Clipboard API is unavailable (e.g. a non-secure context).
+ * @param text - Text to copy
+ * @returns Whether the copy succeeded
+ */
+async function _copy_text(text: string): Promise<boolean> {
+    try {
+        if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true }
+    } catch { /* fall through to legacy path */ }
+    try {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0;'
+        document.body.appendChild(ta)
+        ta.focus(); ta.select()
+        const ok = document.execCommand('copy')
+        document.body.removeChild(ta)
+        return ok
+    } catch { return false }
 }
 
 function _scroll_bottom(): void {

@@ -626,6 +626,8 @@ body.sw-startpage-open > :not(#sw-startpage) { display: none !important; }
     font-family: 'Consolas', 'Cascadia Code', monospace;
     font-size: 11px;
     background: #1a1a1a;
+    user-select: text;            /* allow manual select + Ctrl+C */
+    cursor: text;
 }
 .sw-con-row {
     display: flex;
@@ -642,7 +644,23 @@ body.sw-startpage-open > :not(#sw-startpage) { display: none !important; }
     font-size: 10px;
     padding-top: 1px;
 }
-.sw-con-text { word-break: break-all; }
+.sw-con-text { flex: 1; word-break: break-all; white-space: pre-wrap; }
+.sw-con-copy {
+    flex-shrink: 0;
+    align-self: flex-start;
+    opacity: 0;
+    background: transparent;
+    border: none;
+    color: var(--sw-text-dim);
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1.5;
+    padding: 0 4px;
+    user-select: none;
+}
+.sw-con-row:hover .sw-con-copy { opacity: 0.65; }
+.sw-con-copy:hover  { opacity: 1 !important; color: var(--sw-text); }
+.sw-con-copy.copied { opacity: 1 !important; color: #6ec6ff; }
 .sw-con-log    { color: #e0e0e0; }
 .sw-con-info   { color: #6ec6ff; }
 .sw-con-warn   { color: #ffcc44; background: rgba(255,204,68,0.06); }
@@ -650,6 +668,40 @@ body.sw-startpage-open > :not(#sw-startpage) { display: none !important; }
 .sw-con-system { color: var(--sw-text-dim); font-style: italic; }
 .sw-con-filter        { opacity: 0.45; }
 .sw-con-filter.active { opacity: 1; }
+
+/* ── Preferences category sidebar ── */
+.sw-pref-cat {
+    text-align: left;
+    background: transparent;
+    border: none;
+    color: var(--sw-text);
+    padding: 5px 9px;
+    border-radius: 3px;
+    font-size: 12px;
+    cursor: pointer;
+    width: 100%;
+}
+.sw-pref-cat:hover         { background: var(--sw-border2); }
+.sw-pref-cat.active        { background: var(--sw-accent); color: #fff; }
+.sw-pref-cat.active:hover  { background: var(--sw-accent-hov); }
+
+/* ── Hover help tooltip ── */
+.sw-tooltip {
+    position: fixed;
+    z-index: 99999;
+    max-width: 280px;
+    background: var(--sw-chrome);
+    color: var(--sw-text);
+    border: 1px solid var(--sw-border2);
+    border-radius: 4px;
+    padding: 6px 9px;
+    font-size: 11px;
+    line-height: 1.45;
+    box-shadow: 0 4px 16px #0008;
+    pointer-events: none;
+}
+/* Subtle affordance that an item has help on hover. */
+.sw-has-help { cursor: help; }
 
 /* ── Breakpoint glyphs ── */
 .sw-bp-glyph {

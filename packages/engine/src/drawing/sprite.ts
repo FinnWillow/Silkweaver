@@ -112,13 +112,18 @@ export function sprite_scale_cells(
     xscale: number, yscale: number,
     sl: number, st: number, sr: number, sb: number,
 ): sprite_cell[] {
-    const W = w * xscale, H = h * yscale          // destination area size (local px)
-    const ax0 = -ox * xscale, ay0 = -oy * yscale  // area top-left in origin-relative local space
+    // Build the cells with the ABSOLUTE scale (so tile counts and destination sizes stay positive —
+    // a raw negative scale yields zero/negative cells, i.e. nothing drawn), then apply a negative
+    // axis as a mirror about the origin (local 0) below.
+    const sgx = xscale < 0 ? -1 : 1, sgy = yscale < 0 ? -1 : 1
+    const axs = Math.abs(xscale), ays = Math.abs(yscale)
+    const W = w * axs, H = h * ays                // destination area size (local px)
+    const ax0 = -ox * axs, ay0 = -oy * ays        // area top-left in origin-relative local space
+    const cells: sprite_cell[] = []
 
     if (mode === 'tile' && w > 0 && h > 0) {
         const cols = Math.min(_TILE_CAP, Math.ceil(W / w))
         const rows = Math.min(_TILE_CAP, Math.ceil(H / h))
-        const cells: sprite_cell[] = []
         for (let j = 0; j < rows; j++) {
             const cy0 = ay0 + j * h
             const ch  = Math.min(h, H - j * h)
@@ -128,10 +133,7 @@ export function sprite_scale_cells(
                 cells.push({ dx0: cx0, dy0: cy0, dx1: cx0 + cw, dy1: cy0 + ch, u0: 0, v0: 0, u1: cw / w, v1: ch / h })
             }
         }
-        return cells
-    }
-
-    if (mode === 'nineslice' && w > 0 && h > 0) {
+    } else if (mode === 'nineslice' && w > 0 && h > 0) {
         // Clamp the corner insets so opposite borders never overflow the destination area.
         let cl = Math.max(0, sl), cr = Math.max(0, sr)
         let ct = Math.max(0, st), cb = Math.max(0, sb)
@@ -142,7 +144,6 @@ export function sprite_scale_cells(
         const uy = [0, st / h, (h - sb) / h, 1]
         const dx = [ax0, ax0 + cl, ax0 + W - cr, ax0 + W]
         const dy = [ay0, ay0 + ct, ay0 + H - cb, ay0 + H]
-        const cells: sprite_cell[] = []
         for (let r = 0; r < 3; r++) {
             for (let c = 0; c < 3; c++) {
                 if (dx[c + 1]! - dx[c]! <= 0 || dy[r + 1]! - dy[r]! <= 0) continue   // skip empty bands
@@ -152,11 +153,20 @@ export function sprite_scale_cells(
                 })
             }
         }
-        return cells
+    } else {
+        // 'stretch' (and the fallback): a single quad covering the whole area.
+        cells.push({ dx0: ax0, dy0: ay0, dx1: ax0 + W, dy1: ay0 + H, u0: 0, v0: 0, u1: 1, v1: 1 })
     }
 
-    // 'stretch' (and the fallback): a single quad covering the whole area.
-    return [{ dx0: ax0, dy0: ay0, dx1: ax0 + W, dy1: ay0 + H, u0: 0, v0: 0, u1: 1, v1: 1 }]
+    // Mirror a flipped axis about the origin: reflect the cell across local 0 (swapping its edges so
+    // dx0 < dx1 stays true) and swap the matching UVs so the texture flips too.
+    if (sgx < 0 || sgy < 0) {
+        for (const c of cells) {
+            if (sgx < 0) { const a = c.dx0, b = c.dx1, u0 = c.u0, u1 = c.u1; c.dx0 = -b; c.dx1 = -a; c.u0 = u1; c.u1 = u0 }
+            if (sgy < 0) { const a = c.dy0, b = c.dy1, v0 = c.v0, v1 = c.v1; c.dy0 = -b; c.dy1 = -a; c.v0 = v1; c.v1 = v0 }
+        }
+    }
+    return cells
 }
 
 // =========================================================================

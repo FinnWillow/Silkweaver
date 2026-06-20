@@ -5,20 +5,21 @@ export class obj_paddle extends gm_object {
     static physics_density = 0;
     static physics_restitution = 0;
     static physics_friction = 0;
+
     on_create(): void {
-        this.last_mouse_x = mouse_x;
-        this.x = mouse_x;
-        this.mouse_delta = 0.0;
-        this.hover = this.y;
+        inst.mouse_delta = 0.0;
+        inst.last_mouse_x = mouse_x;
+        sw.x = mouse_x;
     }
+    
     on_step(): void {
         // delta
-        this.mouse_delta = mouse_x - this.last_mouse_x;
+        inst.mouse_delta = mouse_x - inst.last_mouse_x;
 
         // motion
-        this.phy_set_position(this.x + this.mouse_delta, this.y);
+        sw.phy_set_position(sw.x + inst.mouse_delta, sw.y);
 
         // complete
-        this.last_mouse_x = mouse_x;
+        inst.last_mouse_x = mouse_x;
     }
 }

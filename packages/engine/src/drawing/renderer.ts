@@ -181,13 +181,29 @@ export class renderer {
      * @param g - Clear color green (0–1)
      * @param b - Clear color blue (0–1)
      */
-    public static begin_frame(r: number = 0, g: number = 0, b: number = 0): void {
+    public static begin_frame(r?: number, g?: number, b?: number): void {
         const gl = this.gl
+        const c = this._clear_color
         gl.viewport(0, 0, this.canvas.width, this.canvas.height)
-        gl.clearColor(r, g, b, 1)
+        gl.clearColor(r ?? c[0], g ?? c[1], b ?? c[2], 1)
         gl.clear(gl.COLOR_BUFFER_BIT)
         gl.useProgram(this.program)
         this.upload_projection(this.canvas.width, this.canvas.height)
+    }
+
+    /** The window/clear color (Game Settings "Window color") — shown around/behind rooms. */
+    private static _clear_color: [number, number, number] = [0, 0, 0]
+
+    /**
+     * Sets the window clear color — the color the frame is cleared to each frame, i.e. what shows
+     * around and behind rooms (a room paints its own background on top). Accepts a '#rrggbb' string.
+     * @param hex - Color as '#rrggbb' (or 'rrggbb')
+     */
+    public static set_clear_color(hex: string): void {
+        const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim())
+        if (!m) return
+        const n = parseInt(m[1]!, 16)
+        this._clear_color = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
     }
 
     /**
@@ -600,7 +616,9 @@ export class renderer {
         const views: number[] = []
         if (rm.view_enabled) {
             for (let i = 0; i < rm.view_visible.length; i++) {
-                if (rm.view_visible[i] && (rm.view_wview[i] ?? 0) > 0) views.push(i)
+                // Both dimensions must be positive — a 0 width OR height would divide-by-zero in the
+                // view projection and NaN the whole frame.
+                if (rm.view_visible[i] && (rm.view_wview[i] ?? 0) > 0 && (rm.view_hview[i] ?? 0) > 0) views.push(i)
             }
         }
 
@@ -799,7 +817,7 @@ export class renderer {
         const wp = this.tex_mgr.white_pixel
 
         if (!outline) {
-            // Filled: triangle fan using batch quads is approximate; use thin pie slices
+            // Filled: a fan of SEGMENTS real triangles from the centre (a 32-gon approximation).
             for (let i = 0; i < SEGMENTS; i++) {
                 const a0 = (i / SEGMENTS) * Math.PI * 2
                 const a1 = ((i + 1) / SEGMENTS) * Math.PI * 2
@@ -807,7 +825,6 @@ export class renderer {
                 const y0 = cy + Math.sin(a0) * r_px
                 const x1 = cx + Math.cos(a1) * r_px
                 const y1 = cy + Math.sin(a1) * r_px
-                // Draw triangle as 3-point degenerate quad (width≈0 collapses to triangle)
                 this.draw_triangle_internal(cx, cy, x0, y0, x1, y1, r, g, b, a, wp)
             }
         } else {
@@ -935,29 +952,10 @@ export class renderer {
         r: number, g: number, b: number, a: number,
         texture: WebGLTexture
     ): void {
-        // Push directly into the batch's vertex buffer as a triangle
-        // We use add_quad_transformed but with a degenerate 4th point = 3rd point
-        // Instead: directly write into batch private buffer is not accessible, so
-        // we use a workaround — add two quads that form the triangle region.
-        // A proper triangle requires direct vertex submission — handled here by
-        // creating a tiny sub-quad spanning the triangle bounding box and masking
-        // via a triangle fan. Since the batch only supports quads, we submit the
-        // triangle as a degenerate quad (3 distinct verts + 1 duplicate).
-
-        // Flush and use a direct draw call for triangles is ideal but requires
-        // exposing the batch's internal buffer. For now, render three-point shapes
-        // as a bounding quad. This is an approximation acceptable for filled circles.
-        // A proper triangle primitive is done via a dedicated triangle batch in Phase 9.
-
-        // Approximate: smallest AABB quad covering the triangle
-        const minX = Math.min(x0, x1, x2)
-        const maxX = Math.max(x0, x1, x2)
-        const minY = Math.min(y0, y1, y2)
-        const maxY = Math.max(y0, y1, y2)
-        const w = maxX - minX
-        const h = maxY - minY
-        if (w < 0.5 || h < 0.5) return
-        this.batch.add_quad(minX, minY, w, h, 0, 0, 1, 1, r, g, b, a, texture)
+        // Submit a real triangle (white-pixel texture → solid fill). Filled circles/ellipses are
+        // fans of these. (Previously this drew the triangle's bounding-box quad — so any filled
+        // circle/ellipse/triangle came out as a filled rectangle.)
+        this.batch.add_triangle(x0, y0, x1, y1, x2, y2, 0, 0, r, g, b, a, texture)
     }
 
     /**

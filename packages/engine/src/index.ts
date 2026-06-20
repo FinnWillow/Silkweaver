@@ -23,7 +23,8 @@ export {
     date_days_in_month, date_leap_year, date_days_in_year,
     date_datetime_string, date_date_string, date_time_string,
 } from './utils/datetime.js'
-export { instance, with_object } from './core/instance.js'
+export { instance, with_object, instance_queue_create } from './core/instance.js'
+export { sw, inst } from './core/active_instance.js'
 export {
     mp_grid_create, mp_grid_destroy, mp_grid_clear_all, mp_grid_clear_cell, mp_grid_add_cell,
     mp_grid_get_cell, mp_grid_add_rectangle, mp_grid_clear_rectangle, mp_grid_add_instances,

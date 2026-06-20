@@ -4,10 +4,10 @@ export class obj_player extends gm_object {
     weight = 1;
 
     on_create(): void {
-        this.grounded = false;
-        this.vertical_acc = 0.0;
-        this.vertical_vel = 0.0;
-        this.horizontal_vel = 0.0;
+        inst.grounded = false;
+        inst.vertical_acc = 0.0;
+        inst.vertical_vel = 0.0;
+        inst.horizontal_vel = 0.0;
     }
 
     on_step(): void {
@@ -31,9 +31,9 @@ export class obj_player extends gm_object {
         }
 
         // movenemt
-        this.horizontal_vel = dir * this.spd;
-        if (!this.place_meeting(this.x + this.horizontal_vel, this.y, _col)) {
-            this.x += this.horizontal_vel;
+        inst.horizontal_vel = dir * inst.spd;
+        if (!sw.place_meeting(sw.x + inst.horizontal_vel, sw.y, _col)) {
+            sw.x += inst.horizontal_vel;
         }
 
         // ------------------------------
@@ -41,33 +41,43 @@ export class obj_player extends gm_object {
         // ------------------------------
 
         // grounding
-        if (this.place_meeting(this.x, this.y + 1, _col)) {
-            this.grounded = true;
-            this.vertical_vel = 0;
-            this.vertical_acc = 0;
+        if (sw.place_meeting(sw.x, sw.y + 1, _col)) {
+            inst.grounded = true;
+            inst.vertical_vel = 0;
+            inst.vertical_acc = 0;
         } else {
-            this.grounded = false;
+            inst.grounded = false;
         }
 
-        // vertical acceleration (gravity pulls down while airborne)
-        if (!this.grounded) {
-            this.vertical_acc = -this.weight;
+        // gravity
+        if (!inst.grounded) {
+            inst.vertical_acc = -inst.weight;
         }
 
         // jump
-        if (key_jump && this.grounded) {
-            this.vertical_acc = this.jump_force;
+        if (key_jump && inst.grounded) {
+            inst.vertical_acc = inst.jump_force;
         }
 
         // apply acceleration, then move — snapping flush against anything in the way
-        this.vertical_vel += this.vertical_acc;
-        if (this.place_meeting(this.x, this.y - this.vertical_vel, _col)) {
-            while (!this.place_meeting(this.x, this.y - sign(this.vertical_vel), _col)) {
-                this.y -= sign(this.vertical_vel);
+        inst.vertical_vel += inst.vertical_acc;
+        if (sw.place_meeting(sw.x, sw.y - inst.vertical_vel, _col)) {
+            while (!sw.place_meeting(sw.x, sw.y - sign(inst.vertical_vel), _col)) {
+                sw.y -= sign(inst.vertical_vel);
             }
-            this.vertical_vel = 0;
+            inst.vertical_vel = 0;
         }
-        this.y -= this.vertical_vel;
+        sw.y -= inst.vertical_vel;
+
+        // ------------------------------
+        // sprite flip
+        // ------------------------------
+
+        if (dir == 1) {
+            sw.image_xscale = 1;
+        } else if (dir == -1) {
+            sw.image_xscale = -1;
+        }
     }
     static sprite = 'spr_player'
 }

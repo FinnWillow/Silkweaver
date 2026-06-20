@@ -1,6 +1,7 @@
 import { EVENT_TYPE } from "./game_event.js";
 import { game_loop } from "./game_loop.js";
 import type { instance } from "./instance.js";
+import { run_as } from "./active_instance.js";
 import { resource } from "./resource.js";
 import { physics_world_create } from "../physics/physics_world.js";
 
@@ -238,8 +239,8 @@ export class room extends resource {
     public register_all_instances(): void {
         for (const inst of this.all.values()) {
             inst.register_events()
-            // Queue create event for each instance
-            game_loop.register(EVENT_TYPE.create, inst.on_create.bind(inst))
+            // Queue create event for each instance (wrapped so `sw`/`inst` resolve inside on_create)
+            game_loop.register(EVENT_TYPE.create, () => run_as(inst, () => inst.on_create()))
         }
     }
 

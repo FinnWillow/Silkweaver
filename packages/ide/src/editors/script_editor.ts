@@ -38,48 +38,25 @@ function _object_op(action: string, ...args: any[]): Promise<any> {
 function _has_object_op(): boolean { return !!(window as any).swfs?.object_op }
 
 // =========================================================================
-// `this.` autocomplete for event body buffers
+// `inst.` autocomplete for event body buffers
 // =========================================================================
-// An event body is edited as a standalone buffer where `this` is untyped, so a completion provider
-// supplies `this.` members: the engine instance API (from ENGINE_DTS) + the object's own variables.
+// An event body is edited as a standalone buffer. Two author-facing namespaces are completed by a
+// custom provider:
+//   `inst.`   — the object's OWN variables (the ones the author adds: hp, stride…). A curated list.
+//   `global.` — game-wide globals (built-ins + `global.x =` assignments).
+// `sw.` — the engine's BUILT-IN instance API (x, y, image_angle, place_meeting()…) — is typed via the
+// ambient `declare const sw: instance`, so Monaco's TypeScript service completes it directly (no
+// custom provider). `this.` is left to plain JS/TS: in an event buffer it is the global scope, which
+// the engine deliberately does not repurpose.
 
-interface this_member { name: string; method: boolean }
-let _engine_this_members: this_member[] = []
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _this_member_models = new Map<any, this_member[]>()   // event-buffer model → its `this.` members
+const _object_var_models = new Map<any, string[]>()   // event-buffer model → the object's own var names
 
-/** Registers the `this.` members for an event buffer model (engine members + the object's vars). */
+/** Registers the object's own variable names for an event buffer model (for `inst.` completion). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function _register_this_members(model: any, object_vars: string[]): void {
+function _register_object_vars(model: any, object_vars: string[]): void {
     if (!model) return
-    _this_member_models.set(model, [..._engine_this_members, ...object_vars.map(name => ({ name, method: false }))])
-}
-
-/** Extracts the brace-balanced body of `declare class <name> …{ … }` from the engine .d.ts. */
-function _class_body(dts: string, name: string): string {
-    const m = new RegExp(`declare class ${name}[^{]*\\{`).exec(dts)
-    if (!m) return ''
-    let i = m.index + m[0].length, depth = 1
-    const start = i
-    while (i < dts.length && depth > 0) { const c = dts[i]; if (c === '{') depth++; else if (c === '}') depth--; i++ }
-    return dts.slice(start, i - 1)
-}
-
-/** Collects public, non-static instance members of `instance` + `gm_object` for `this.` completion. */
-function _extract_this_members(dts: string): this_member[] {
-    const found = new Map<string, boolean>()   // name → isMethod
-    for (const cls of ['instance', 'gm_object']) {
-        const body = _class_body(dts, cls)
-        const re = /(?:^|\n)[ \t]*((?:public |protected |private |readonly |static |abstract |get |set )*)([A-Za-z_]\w*)\s*([(<:?])/g
-        let m: RegExpExecArray | null
-        while ((m = re.exec(body))) {
-            const mods = m[1]!, nm = m[2]!, next = m[3]!
-            if (mods.includes('static') || mods.includes('private')) continue
-            if (nm === 'constructor' || nm.startsWith('_')) continue
-            if (!found.has(nm)) found.set(nm, next === '(' || next === '<')
-        }
-    }
-    return [...found.entries()].map(([name, method]) => ({ name, method }))
+    _object_var_models.set(model, object_vars)
 }
 
 // =========================================================================
@@ -154,9 +131,8 @@ function _setup_monaco(monaco: Monaco): void {
         diagnosticCodesToIgnore: [6133, 6192, 6196, 6198, 6199, 6205, 1108, 1308, 1375, 1378],
     })
 
-    // `this.` autocomplete for event body buffers (which have no class context). Only contributes
-    // when the active model is a registered event buffer; otherwise TypeScript handles completion.
-    _engine_this_members = _extract_this_members(ENGINE_DTS)
+    // Custom completions for the two author-facing namespaces. `sw.` (engine API), `this.` (plain
+    // JS/TS), and everything else are left to TypeScript.
     monaco.languages.registerCompletionItemProvider('typescript', {
         triggerCharacters: ['.'],
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -166,6 +142,8 @@ function _setup_monaco(monaco: Monaco): void {
             const range = { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: word.startColumn, endColumn: word.endColumn }
             const K = monaco.languages.CompletionItemKind
             const ASSIGN = '\\s*(?:[-+*/%&|^]?=(?!=)|\\*\\*=|<<=|>>>?=|\\+\\+|--)'
+            const fields = (names: Iterable<string>): { suggestions: unknown[] } =>
+                ({ suggestions: [...names].map(n => ({ label: n, kind: K.Field, insertText: n, range })) })
 
             // `global.` — built-in score/lives/health + any `global.x = …` defined in this buffer. The
             // accessors are added at runtime so TS types `global` as Record<…> and offers nothing; this
@@ -175,27 +153,21 @@ function _setup_monaco(monaco: Monaco): void {
                 const gre = new RegExp('(?<!\\.)\\bglobal\\.([A-Za-z_$][\\w$]*)' + ASSIGN, 'g')
                 let gm: RegExpExecArray | null
                 while ((gm = gre.exec(model.getValue()))) names.add(gm[1]!)
-                return { suggestions: [...names].map(n => ({ label: n, kind: K.Field, insertText: n, range })) }
+                return fields(names)
             }
 
-            // `this.` — only for registered event buffers (no class context); otherwise let TS complete.
-            const members = _this_member_models.get(model)
-            if (!members) return undefined
-            if (!/\bthis\.\w*$/.test(line)) return { suggestions: [] }
-            // Merge in `this.x = …` assignments typed in THIS buffer right now, so a variable just
-            // created in the current event completes immediately (the registered list — engine members
-            // + the object's saved vars — only refreshes on save/reload).
-            const seen = new Set(members.map(m => m.name))
-            const all  = [...members]
-            const re = new RegExp('\\bthis\\.([A-Za-z_$][\\w$]*)' + ASSIGN, 'g')
-            let mm: RegExpExecArray | null
-            while ((mm = re.exec(model.getValue()))) { const n = mm[1]!; if (!seen.has(n)) { seen.add(n); all.push({ name: n, method: false }) } }
-            return { suggestions: all.map(mem => ({
-                label:      mem.name,
-                kind:       mem.method ? K.Method : K.Field,
-                insertText: mem.name,
-                range,
-            })) }
+            // `inst.` — the object's own variables: the registered list (declared vars + saved
+            // assignments) plus any `inst.x = …` just typed in THIS buffer. `inst` is typed loosely so
+            // TS offers nothing for it, making this the sole source. Works in any model.
+            if (/(?<!\.)\binst\.\w*$/.test(line)) {
+                const names = new Set<string>(_object_var_models.get(model) ?? [])
+                const ire = new RegExp('(?<!\\.)\\binst\\.([A-Za-z_$][\\w$]*)' + ASSIGN, 'g')
+                let im: RegExpExecArray | null
+                while ((im = ire.exec(model.getValue()))) names.add(im[1]!)
+                return fields(names)
+            }
+
+            return undefined   // `sw.`, `this.`, everything else → TypeScript
         },
     })
 }
@@ -211,7 +183,7 @@ interface EditorConfig {
     breakpoints:  boolean
     glyph_margin: boolean
     watch_path?:  string                             // project-relative file to reload on external change
-    get_this_vars?: () => Promise<string[]>          // event buffers: object var names for `this.` completion
+    get_object_vars?: () => Promise<string[]>        // event buffers: object var names for `inst.` completion
     load:         () => Promise<string>              // how to read the initial content
     save:         (content: string) => Promise<void> | void   // how to persist
 }
@@ -283,10 +255,10 @@ export class ScriptEditor {
         // Reload when the underlying file is changed by another window / outside the IDE.
         if (this._cfg.watch_path) this._unsub = file_watch_subscribe(this._cfg.watch_path, () => void this._external_reload())
 
-        // Event buffers: enable `this.` autocomplete (engine members now, + object vars when fetched).
-        if (this._cfg.get_this_vars) {
-            _register_this_members(this._editor.getModel(), [])   // engine members immediately
-            this._refresh_this_members()                          // + object vars (async)
+        // Event buffers: enable `inst.` autocomplete with the object's own variables (fetched async).
+        if (this._cfg.get_object_vars) {
+            _register_object_vars(this._editor.getModel(), [])   // empty until fetched
+            this._refresh_object_vars()                          // object vars (async)
         }
 
         // Breakpoints: glyph-margin toggle + decoration registration.
@@ -325,21 +297,21 @@ export class ScriptEditor {
     // ── External reload (parallel editing) ────────────────────────────────────
 
     /**
-     * Re-fetches the object's variables and refreshes this buffer's `this.` completion list. Keeps
-     * `this.` autocomplete in sync when a variable is added/removed from the object window elsewhere.
+     * Re-fetches the object's variables and refreshes this buffer's `inst.` completion list. Keeps
+     * `inst.` autocomplete in sync when a variable is added/removed from the object window elsewhere.
      */
-    private _refresh_this_members(): void {
-        if (!this._cfg.get_this_vars || !this._editor) return
+    private _refresh_object_vars(): void {
+        if (!this._cfg.get_object_vars || !this._editor) return
         const model = this._editor.getModel(); if (!model) return
-        void this._cfg.get_this_vars()
-            .then(vars => { if (!this._disposed && this._editor?.getModel() === model) _register_this_members(model, vars) })
-            .catch(() => { /* keep the engine members already registered */ })
+        void this._cfg.get_object_vars()
+            .then(vars => { if (!this._disposed && this._editor?.getModel() === model) _register_object_vars(model, vars) })
+            .catch(() => { /* keep whatever vars were already registered */ })
     }
 
     /** Reloads content after an external change. Keeps the user's edits if this window is dirty. */
     private async _external_reload(): Promise<void> {
         if (this._disposed || !this._editor) return
-        this._refresh_this_members()   // a sibling edit may have changed the object's variables
+        this._refresh_object_vars()   // a sibling edit may have changed the object's variables
         if (this._dirty) {
             // Don't clobber in-progress edits — just flag that the file diverged on disk.
             this._win.set_title('⚠ ' + this._cfg.title)
@@ -396,7 +368,7 @@ export class ScriptEditor {
         this._unsub = null
         void this._flush()                         // persist any pending edit (captures content first)
         if (this._cfg.breakpoints) { try { bp_unregister_editor(this._cfg.file_key) } catch { /* ignore */ } }
-        const m = this._editor?.getModel(); if (m) _this_member_models.delete(m)
+        const m = this._editor?.getModel(); if (m) _object_var_models.delete(m)
         try { this._editor?.getModel()?.dispose() } catch { /* ignore */ }
         try { this._editor?.dispose() } catch { /* ignore */ }
         this._editor = null
@@ -467,10 +439,10 @@ export async function script_editor_open_event(parent: HTMLElement, rel_path: st
         win_id: `script-editor:${key}`, title, file_key: key,
         breakpoints: false, glyph_margin: false,   // body-buffer lines ≠ file lines → no breakpoints here
         watch_path: rel_path,                      // reload this event's body if the class file changes
-        get_this_vars: async () => {
+        get_object_vars: async () => {
             try {
-                // Declared fields + members assigned in any event (this.x = … in Create, etc.)
-                const names = await _object_op('this_members', await project_read_file(rel_path))
+                // Declared fields + members assigned in any event (inst.x = … in Create, etc.)
+                const names = await _object_op('object_vars', await project_read_file(rel_path))
                 return Array.isArray(names) ? names as string[] : []
             } catch { return [] }
         },

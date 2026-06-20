@@ -264,6 +264,40 @@ export class batch_renderer {
     }
 
     /**
+     * Pushes a single filled triangle into the batch. The buffer is organised in quad-sized slots
+     * (6 vertices = 2 triangles), so the real triangle goes in the first three vertices and the
+     * second triangle is made degenerate (all three points coincide → zero area → draws nothing).
+     * Face culling is disabled, so vertex winding doesn't matter. Used for filled circles / ellipses /
+     * triangles, which are fans of these.
+     * @param texture - Usually the 1×1 white pixel (a solid-color fill); UV can be anything.
+     */
+    public add_triangle(
+        x0: number, y0: number, x1: number, y1: number, x2: number, y2: number,
+        u: number, v: number,
+        r: number, g: number, b: number, a: number,
+        texture: WebGLTexture
+    ): void {
+        if (this.current_texture !== null && this.current_texture !== texture) this.flush()
+        this.current_texture = texture
+        if (this.quad_count >= MAX_QUADS) this.flush()
+
+        const base = this.quad_count * FLOATS_PER_QUAD
+        const verts = this.vertices
+        const write = (off: number, px: number, py: number): void => {
+            verts[off + 0] = px;  verts[off + 1] = py
+            verts[off + 2] = u;   verts[off + 3] = v
+            verts[off + 4] = r;   verts[off + 5] = g;   verts[off + 6] = b;   verts[off + 7] = a
+        }
+        write(base + 0,  x0, y0)            // real triangle
+        write(base + 8,  x1, y1)
+        write(base + 16, x2, y2)
+        write(base + 24, x2, y2)            // degenerate second triangle (zero area)
+        write(base + 32, x2, y2)
+        write(base + 40, x2, y2)
+        this.quad_count++
+    }
+
+    /**
      * Flushes accumulated quads to the GPU with a single draw call.
      * Resets the batch state after drawing.
      */

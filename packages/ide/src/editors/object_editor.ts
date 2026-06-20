@@ -14,6 +14,7 @@ import { script_editor_open_event, script_editor_open_full }     from './script_
 import { get_project_resource_names }                            from '../index.js'
 import { file_watch_subscribe }                                  from '../services/file_watch.js'
 import { show_context_menu }                                     from '../services/context_menu.js'
+import { tooltip_attach }                                        from '../services/tooltip.js'
 
 // =========================================================================
 // Object model (mirrors object_format.object_model)
@@ -39,20 +40,32 @@ const EMPTY_MODEL: object_model = {
 }
 
 /** Addable/toggleable object metadata (each is a `static` field). `def` is its initializer when added. */
-interface meta_def { key: string; label: string; kind: 'sprite' | 'object' | 'bool' | 'number' | 'enum'; def: string; options?: string[] }
+interface meta_def { key: string; label: string; kind: 'sprite' | 'object' | 'bool' | 'number' | 'enum'; def: string; desc: string; options?: string[] }
 const META_CATALOG: meta_def[] = [
-    { key: 'sprite',              label: 'Sprite',              kind: 'sprite', def: "''" },
-    { key: 'parent',              label: 'Parent',              kind: 'object', def: '' },
-    { key: 'solid',               label: 'Solid',               kind: 'bool',   def: 'true' },
-    { key: 'visible',             label: 'Visible',             kind: 'bool',   def: 'true' },
-    { key: 'persistent',          label: 'Persistent',          kind: 'bool',   def: 'true' },
-    { key: 'depth',               label: 'Depth',               kind: 'number', def: '0' },
-    { key: 'physics',             label: 'Physics',             kind: 'bool',   def: 'true' },
-    { key: 'physics_shape',       label: 'Physics shape',       kind: 'enum',   def: "'box'", options: ['box', 'circle'] },
-    { key: 'physics_density',     label: 'Physics density',     kind: 'number', def: '0.5' },
-    { key: 'physics_restitution', label: 'Physics restitution', kind: 'number', def: '0.1' },
-    { key: 'physics_friction',    label: 'Physics friction',    kind: 'number', def: '0.2' },
-    { key: 'physics_sensor',      label: 'Physics sensor',      kind: 'bool',   def: 'false' },
+    { key: 'sprite',              label: 'Sprite',              kind: 'sprite', def: "''",
+        desc: 'The default sprite drawn for instances of this object.' },
+    { key: 'parent',              label: 'Parent',              kind: 'object', def: '',
+        desc: 'Inherit from another object. Collision / with / instance checks against the parent also match this object.' },
+    { key: 'solid',               label: 'Solid',               kind: 'bool',   def: 'true',
+        desc: 'Marks instances as solid for GMS-style collision checks. It does not block movement on its own.' },
+    { key: 'visible',             label: 'Visible',             kind: 'bool',   def: 'true',
+        desc: 'Whether instances are drawn by default. Invisible instances still run their events.' },
+    { key: 'persistent',          label: 'Persistent',          kind: 'bool',   def: 'true',
+        desc: 'Keep instances alive across room changes instead of destroying them when the room ends.' },
+    { key: 'depth',               label: 'Depth',               kind: 'number', def: '0',
+        desc: 'Draw order. Lower depth draws on top (in front); higher depth draws further back.' },
+    { key: 'physics',             label: 'Physics',             kind: 'bool',   def: 'true',
+        desc: 'Make instances matter.js physics bodies, created on the first physics step.' },
+    { key: 'physics_shape',       label: 'Physics shape',       kind: 'enum',   def: "'box'", options: ['box', 'circle'],
+        desc: 'Collider shape for the physics body: box (the sprite bounds) or circle.' },
+    { key: 'physics_density',     label: 'Physics density',     kind: 'number', def: '0.5',
+        desc: 'Mass per area — heavier bodies resist forces more. Density ≤ 0 makes the body static (immovable).' },
+    { key: 'physics_restitution', label: 'Physics restitution', kind: 'number', def: '0.1',
+        desc: 'Bounciness, 0–1. 0 = no bounce, 1 = a full elastic bounce.' },
+    { key: 'physics_friction',    label: 'Physics friction',    kind: 'number', def: '0.2',
+        desc: 'Surface friction — how much sliding contact slows the body. 0 = frictionless.' },
+    { key: 'physics_sensor',      label: 'Physics sensor',      kind: 'bool',   def: 'false',
+        desc: 'A sensor reports overlaps/collisions but doesn’t physically push anything.' },
 ]
 
 /** Catalog of authorable events → class method names (+ params for the few that take args). */
@@ -239,14 +252,17 @@ class object_editor_window {
     /**
      * A single metadata field. Compact controls (toggles + short numbers) sit inline with the label;
      * wide controls (sprite/parent/enum dropdowns) go full-width on their own line so long resource
-     * names never force a horizontal scroll. Long labels truncate with an ellipsis (+ title tooltip).
+     * names never force a horizontal scroll. Long labels truncate with an ellipsis; hovering a label
+     * shows a help tooltip describing what the field does.
      */
     private _meta_row(def: meta_def, value: string): HTMLElement {
         const inline = def.kind === 'bool' || def.kind === 'number'   // checkbox / short number → sits on the label row
 
         const label = document.createElement('span')
-        label.textContent = def.label; label.title = def.label
+        label.textContent = def.label
+        label.classList.add('sw-has-help')
         label.style.cssText = 'flex:1; min-width:0; font-size:10px; color:var(--sw-text-dim); text-transform:uppercase; letter-spacing:0.04em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'
+        tooltip_attach(label, def.desc)   // hover the field name → what it does
         const del = document.createElement('button')
         del.className = 'sw-x-btn'; del.textContent = '✕'; del.title = `Remove ${def.label}`; del.style.flexShrink = '0'
         del.addEventListener('click', () => this._patch('remove_static', def.key))

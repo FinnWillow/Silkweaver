@@ -6,6 +6,7 @@
  */
 
 import { FloatingWindow } from '../window_manager.js'
+import { tooltip_attach } from '../services/tooltip.js'
 import type { project_state } from '../services/project.js'
 import {
     project_is_desktop, project_get_folder_path, project_vendor_engine,
@@ -68,21 +69,27 @@ function _build_ui(
     const root = document.createElement('div')
     root.style.cssText = 'padding:12px; overflow-y:auto; height:100%; display:flex; flex-direction:column; gap:16px;'
 
-    root.appendChild(_section('Project', [
-        _field_text('Name',    state.name,    v => { state.name    = v; on_change() }),
-        _field_text('Version', state.version, v => { state.version = v; on_change() }),
+    root.appendChild(_section('Project', 'Identifies the game.', [
+        _field_text('Name',    state.name,    v => { state.name    = v; on_change() },
+            'The game’s name. Used for the window title and exports.'),
+        _field_text('Version', state.version, v => { state.version = v; on_change() },
+            'Your project’s version string (e.g. 1.0.0).'),
     ]))
 
-    root.appendChild(_section('Display', [
-        _field_number('Window Width',  state.settings.windowWidth,  1, 7680, v => { state.settings.windowWidth  = v; on_change() }),
-        _field_number('Window Height', state.settings.windowHeight, 1, 4320, v => { state.settings.windowHeight = v; on_change() }),
-        _field_color( 'Background Color', state.settings.displayColor ?? '#000000', v => { state.settings.displayColor = v; on_change() }),
+    root.appendChild(_section('Window', 'Whole-game display — applies everywhere.', [
+        _field_number('Window width',  state.settings.windowWidth,  1, 7680, v => { state.settings.windowWidth  = v; on_change() },
+            'The game canvas resolution, in pixels. A room sets its own world size separately (in Room settings).'),
+        _field_number('Window height', state.settings.windowHeight, 1, 4320, v => { state.settings.windowHeight = v; on_change() }),
+        _field_color( 'Window color', state.settings.displayColor ?? '#000000', v => { state.settings.displayColor = v; on_change() },
+            'The clear color shown around and behind rooms. Each room paints its own background on top of this.'),
     ]))
 
-    root.appendChild(_section('Game', [
-        _field_number('Room Speed (FPS)', state.settings.roomSpeed, 1, 960, v => { state.settings.roomSpeed = v; on_change() }),
-        _field_select('Start Room', state.settings.startRoom, room_names,
-            v => { state.settings.startRoom = v; on_change() }),
+    root.appendChild(_section('Game', 'Whole-game runtime defaults.', [
+        _field_number('Default room speed (new rooms)', state.settings.roomSpeed, 1, 960, v => { state.settings.roomSpeed = v; on_change() },
+            'The FPS a newly-created room starts at. Each room overrides this in its own settings — that per-room value is what actually runs.'),
+        _field_select('Start room', state.settings.startRoom, room_names,
+            v => { state.settings.startRoom = v; on_change() },
+            'The room the game opens in.'),
     ]))
 
     root.appendChild(_engine_section(state, on_change))
@@ -144,7 +151,8 @@ function _engine_section(state: project_state, on_change: () => void): HTMLEleme
         status.textContent = 'Pinned with the project.'
     }
 
-    return _section('Engine', [_row('Engine version', ver), _row('', action)])
+    return _section('Engine', 'The exact engine this project builds against — updating the IDE never changes it.',
+        [_row('Engine version', ver, 'The engine version this project is pinned to and builds against.'), _row('', action)])
 }
 
 function _action_btn(label: string, on_click: () => void): HTMLButtonElement {
@@ -160,7 +168,7 @@ function _action_btn(label: string, on_click: () => void): HTMLButtonElement {
 // Section / field helpers
 // =========================================================================
 
-function _section(title: string, fields: HTMLElement[]): HTMLElement {
+function _section(title: string, desc: string, fields: HTMLElement[]): HTMLElement {
     const wrap = document.createElement('div')
     wrap.style.cssText = 'display:flex; flex-direction:column; gap:6px;'
 
@@ -171,25 +179,25 @@ function _section(title: string, fields: HTMLElement[]): HTMLElement {
         letter-spacing:0.5px; color:var(--sw-text-dim);
         padding-bottom:4px; border-bottom:1px solid var(--sw-border2);
     `
+    if (desc) { hdr.classList.add('sw-has-help'); tooltip_attach(hdr, desc) }
     wrap.appendChild(hdr)
     fields.forEach(f => wrap.appendChild(f))
     return wrap
 }
 
-function _row(label: string, control: HTMLElement): HTMLElement {
+function _row(label: string, control: HTMLElement, desc?: string): HTMLElement {
     const row = document.createElement('div')
-    row.style.cssText = 'display:flex; align-items:center; gap:8px;'
-
+    row.style.cssText = 'display:flex; align-items:center; gap:8px; min-height:24px;'
     const lbl = document.createElement('label')
     lbl.className = 'sw-label'
     lbl.textContent = label
     lbl.style.cssText += 'min-width:140px; flex-shrink:0; margin:0;'
-
     row.append(lbl, control)
+    if (desc) { lbl.classList.add('sw-has-help'); tooltip_attach(row, desc) }
     return row
 }
 
-function _field_text(label: string, value: string, on_input: ((v: string) => void) | null): HTMLElement {
+function _field_text(label: string, value: string, on_input: ((v: string) => void) | null, desc?: string): HTMLElement {
     const inp = document.createElement('input')
     inp.className = 'sw-input'
     inp.type  = 'text'
@@ -197,10 +205,10 @@ function _field_text(label: string, value: string, on_input: ((v: string) => voi
     inp.style.flex = '1'
     if (!on_input) inp.readOnly = true
     else inp.addEventListener('input', () => on_input(inp.value))
-    return _row(label, inp)
+    return _row(label, inp, desc)
 }
 
-function _field_number(label: string, value: number, min: number, max: number, on_change: (v: number) => void): HTMLElement {
+function _field_number(label: string, value: number, min: number, max: number, on_change: (v: number) => void, desc?: string): HTMLElement {
     const inp = document.createElement('input')
     inp.className = 'sw-input'
     inp.type  = 'number'
@@ -213,10 +221,10 @@ function _field_number(label: string, value: number, min: number, max: number, o
         inp.value = String(n)
         on_change(n)
     })
-    return _row(label, inp)
+    return _row(label, inp, desc)
 }
 
-function _field_select(label: string, value: string, options: string[], on_change: (v: string) => void): HTMLElement {
+function _field_select(label: string, value: string, options: string[], on_change: (v: string) => void, desc?: string): HTMLElement {
     const sel = document.createElement('select')
     sel.className = 'sw-select'
     sel.style.flex = '1'
@@ -237,10 +245,10 @@ function _field_select(label: string, value: string, options: string[], on_chang
     }
 
     sel.addEventListener('change', () => on_change(sel.value))
-    return _row(label, sel)
+    return _row(label, sel, desc)
 }
 
-function _field_color(label: string, value: string, on_change: (v: string) => void): HTMLElement {
+function _field_color(label: string, value: string, on_change: (v: string) => void, desc?: string): HTMLElement {
     const wrap = document.createElement('div')
     wrap.style.cssText = 'display:flex; align-items:center; gap:6px; flex:1;'
 
@@ -271,5 +279,5 @@ function _field_color(label: string, value: string, on_change: (v: string) => vo
     })
 
     wrap.append(picker, hex)
-    return _row(label, wrap)
+    return _row(label, wrap, desc)
 }

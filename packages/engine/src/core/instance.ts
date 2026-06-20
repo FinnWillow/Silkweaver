@@ -1,5 +1,6 @@
 import { EVENT_TYPE } from "./game_event.js"
 import { game_loop } from "./game_loop.js"
+import { run_as } from "./active_instance.js"
 import { resource } from "./resource.js"
 import type { room } from "./room.js"
 import { instances_collide, update_bbox, point_in_instance, rect_in_instance, circle_in_instance, line_in_instance } from "../collision/collision.js"
@@ -186,11 +187,12 @@ export class instance extends resource {
     constructor(room: room) {
         super()
         this.room = room
-        // Create stable bound references once — used for both register and unregister
-        this._bound_step_begin = this.on_step_begin.bind(this)
-        this._bound_step       = this.internal_step.bind(this)
-        this._bound_step_end   = this.on_step_end.bind(this)
-        this._bound_draw_gui   = this.on_draw_gui.bind(this)
+        // Create stable bound references once — used for both register and unregister. Each wraps its
+        // event in run_as so the bare `inst` namespace resolves to THIS instance while the event runs.
+        this._bound_step_begin = () => run_as(this, () => this.on_step_begin())
+        this._bound_step       = () => run_as(this, () => this.internal_step())
+        this._bound_step_end   = () => run_as(this, () => this.on_step_end())
+        this._bound_draw_gui   = () => run_as(this, () => this.on_draw_gui())
     }
 
     // =========================================================================
@@ -218,8 +220,8 @@ export class instance extends resource {
         currentRoom.instance_add(inst)
         inst.register_events()
 
-        // Queue create event
-        game_loop.register(EVENT_TYPE.create, inst.on_create.bind(inst))
+        // Queue the Create event (wrapped so `sw`/`inst` resolve to the new instance inside on_create)
+        instance_queue_create(inst)
 
         return inst
     }
@@ -254,7 +256,7 @@ export class instance extends resource {
         if (this._destroyed) return
         this._destroyed = true
         if (this.phy_body_id >= 0) { physics_body_destroy(this.phy_body_id); this.phy_body_id = -1 }
-        game_loop.register(EVENT_TYPE.destroy, this.on_destroy.bind(this))
+        game_loop.register(EVENT_TYPE.destroy, () => run_as(this, () => this.on_destroy()))
         this.unregister_events()
         this.room.instance_remove(this.id)
         resource.removeByID(this.id)
@@ -418,19 +420,19 @@ export class instance extends resource {
      */
     public run_draw(): void {
         if (!this.visible || !this.active) return
-        this.on_draw()
+        run_as(this, () => this.on_draw())
     }
 
     /** Runs the Draw Begin event (skips hidden/inactive instances). */
     public run_draw_begin(): void {
         if (!this.visible || !this.active) return
-        this.on_draw_begin()
+        run_as(this, () => this.on_draw_begin())
     }
 
     /** Runs the Draw End event (skips hidden/inactive instances). */
     public run_draw_end(): void {
         if (!this.visible || !this.active) return
-        this.on_draw_end()
+        run_as(this, () => this.on_draw_end())
     }
 
     // =========================================================================
@@ -1504,9 +1506,11 @@ export function with_object<T extends instance>(
     obj: typeof instance | T[],
     callback: (self: T) => void
 ): void {
+    // Each callback runs under run_as so `sw`/`inst` inside the block refer to the iterated instance
+    // (GMS `with` semantics), in addition to the `self` argument.
     if (Array.isArray(obj)) {
         for (const inst of obj) {
-            if (inst.active) callback(inst)
+            if (inst.active) run_as(inst, () => callback(inst))
         }
         return
     }
@@ -1514,9 +1518,22 @@ export function with_object<T extends instance>(
     if (!rm) return
     for (const inst of rm.instance_get_all()) {
         if (object_match(inst, obj) && inst.active) {
-            callback(inst as T)
+            run_as(inst, () => callback(inst as T))
         }
     }
+}
+
+/**
+ * Queues an instance's Create event — plus optional per-instance creation code — so both run under
+ * the active-instance context: `sw`/`inst` resolve to this instance inside them, exactly like a
+ * runtime `instance_create`. Used by the room (re)build path and the build's generated room builder;
+ * you normally never call this yourself.
+ * @param target - The freshly-constructed instance
+ * @param creation_code - Optional per-instance creation code (already bound to the instance)
+ */
+export function instance_queue_create(target: instance, creation_code?: () => void): void {
+    game_loop.register(EVENT_TYPE.create, () => run_as(target, () => target.on_create()))
+    if (creation_code) game_loop.register(EVENT_TYPE.create, () => run_as(target, creation_code))
 }
 
 // =========================================================================

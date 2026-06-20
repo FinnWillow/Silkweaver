@@ -290,7 +290,7 @@ ipcMain.handle('sw:vendor-engine', async (_e, project_folder: string) => {
 /** Whitelisted object_format operations callable from the renderer. */
 const OBJECT_OPS = {
     parse_object:    build.parse_object,
-    this_members:    build.this_members,
+    object_vars:     build.object_vars,
     set_static:      build.set_static,
     remove_static:   build.remove_static,
     set_field:       build.set_field,

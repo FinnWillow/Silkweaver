@@ -26,6 +26,8 @@ export interface editor_prefs {
     indentGuides:            boolean
     stickyScroll:            boolean
     autoOrganizeObjects:     boolean  // reorder object .ts (metadata→vars→events) + add `;` on full-view open
+    tooltips:                boolean  // show hover help tooltips on settings/preferences items
+    tooltipDelay:            number   // ms to hover before a tooltip appears
 }
 
 const DEFAULTS: editor_prefs = {
@@ -43,6 +45,8 @@ const DEFAULTS: editor_prefs = {
     indentGuides:            true,
     stickyScroll:            false,
     autoOrganizeObjects:     true,
+    tooltips:                true,
+    tooltipDelay:            500,
 }
 
 const LS = 'sw.editor.prefs'

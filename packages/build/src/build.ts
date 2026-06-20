@@ -189,10 +189,12 @@ async function generate_entry_code(
                 if ((inst.scale_y ?? 1) !== 1) lines.push(`    ${v}.image_yscale = ${inst.scale_y}`)
                 if ((inst.rotation ?? 0) !== 0) lines.push(`    ${v}.image_angle = ${inst.rotation}`)
                 lines.push(`    ${v}.register_events()`)
-                lines.push(`    game_loop.register(EVENT_TYPE.create, ${v}.on_create.bind(${v}))`)
-                // Per-instance creation code runs after the object's Create event (bound: this = instance).
+                // Queue the Create event (+ optional per-instance creation code) via the engine helper,
+                // which runs them under the active-instance context so `sw`/`inst` resolve inside.
                 if (inst.creation_code && inst.creation_code.trim()) {
-                    lines.push(`    game_loop.register(EVENT_TYPE.create, (function(this: any){\n${inst.creation_code}\n}).bind(${v}))`)
+                    lines.push(`    instance_queue_create(${v}, (function(this: any){\n${inst.creation_code}\n}).bind(${v}))`)
+                } else {
+                    lines.push(`    instance_queue_create(${v})`)
                 }
                 return lines.join('\n')
             }).filter(Boolean).join('\n')
@@ -497,7 +499,7 @@ async function _load_sound(name: string, meta_url: string, base: string): Promis
 // ── Bootstrap ───────────────────────────────────────────────────────────────
 export default async function init(canvas: HTMLCanvasElement): Promise<void> {
     renderer.init(canvas, ${proj.settings.windowWidth ?? 640}, ${proj.settings.windowHeight ?? 480})
-    // Background clear color: ${proj.settings.displayColor ?? '#000000'}
+    renderer.set_clear_color(${JSON.stringify(proj.settings.displayColor ?? '#000000')})   // window/clear color (Game Settings)
     game_loop.init_input(canvas)
 
     // Load sprites

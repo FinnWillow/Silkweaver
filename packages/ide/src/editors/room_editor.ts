@@ -16,6 +16,7 @@ import { get_project_object_names, get_project_resource_names }     from '../ind
 import { script_editor_open_text }                                 from './script_editor.js'
 import { project_read_file, project_write_file, project_read_binary_url, project_file_exists } from '../services/project.js'
 import { sprite_slice_cells, type scale_mode } from '../services/sprite_slice.js'
+import { tooltip_attach } from '../services/tooltip.js'
 import type {
     room_instance, room_background_layer, room_view, room_tile, room_file,
 } from '@silkweaver/project'
@@ -509,11 +510,15 @@ class room_editor_window {
         const name_row = _text_field('Name:', this._room_name, () => { /* rename via the resource tree */ })
         ;(name_row.querySelector('input') as HTMLInputElement).disabled = true
         el.append(
-            name_row,
-            _num_field('Width:',       this._data.width,      (v) => { this._data.width      = v; this._redraw(); this._save() }),
-            _num_field('Height:',      this._data.height,     (v) => { this._data.height     = v; this._redraw(); this._save() }),
-            _num_field('Room Speed:',  this._data.room_speed, (v) => { this._data.room_speed = v; this._save() }),
-            _check_field('Persistent', this._data.persistent, (v) => { this._data.persistent = v; this._save() }),
+            _tip(name_row, 'Rename the room from the Resources tree (right-click → Rename).'),
+            _tip(_num_field('Width:',  this._data.width,  (v) => { this._data.width  = v; this._redraw(); this._save() }),
+                'The room’s world width in pixels — independent of the game window size in Game Settings.'),
+            _tip(_num_field('Height:', this._data.height, (v) => { this._data.height = v; this._redraw(); this._save() }),
+                'The room’s world height in pixels — independent of the game window size in Game Settings.'),
+            _tip(_num_field('Room Speed:', this._data.room_speed, (v) => { this._data.room_speed = v; this._save() }),
+                'This room’s frame rate (FPS). This is the value that actually runs; it overrides the project default in Game Settings.'),
+            _tip(_check_field('Persistent', this._data.persistent, (v) => { this._data.persistent = v; this._save() }),
+                'Keep this room’s live state (instances, variables) when you leave and return, instead of rebuilding it fresh.'),
         )
         el.appendChild(this._creation_code_button(
             'Creation Code',
@@ -1245,12 +1250,17 @@ class room_editor_window {
             if (inst.rotation) ctx.rotate(-inst.rotation * Math.PI / 180)   // GMS image_angle is counter-clockwise
             ctx.imageSmoothingEnabled = false
             if (render.scale_mode !== 'stretch' && (sxv !== 1 || syv !== 1)) {
-                // Tile / 9-slice: fill the W×H area with cells (no ctx.scale stretch). The area's
-                // top-left sits at the scaled origin so the sprite still anchors at the instance point.
-                const ax = -render.ox * sxv, ay = -render.oy * syv
-                for (const c of sprite_slice_cells(render.scale_mode, render.w, render.h, sxv, syv, render.sl, render.st, render.sr, render.sb)) {
+                // Tile / 9-slice: fill the area with cells. Tiling/sizing use |scale| (a raw negative
+                // scale would give zero/negative cells → nothing drawn); a negative axis becomes a
+                // mirror about the origin via ctx.scale, matching the engine's sprite_scale_cells.
+                const asx = Math.abs(sxv), asy = Math.abs(syv)
+                ctx.save()
+                ctx.scale(sxv < 0 ? -1 : 1, syv < 0 ? -1 : 1)
+                const ax = -render.ox * asx, ay = -render.oy * asy
+                for (const c of sprite_slice_cells(render.scale_mode, render.w, render.h, asx, asy, render.sl, render.st, render.sr, render.sb)) {
                     ctx.drawImage(render.img, c.sx, c.sy, c.sw, c.sh, ax + c.dx, ay + c.dy, c.dw, c.dh)
                 }
+                ctx.restore()
             } else {
                 // Stretch: confine ctx.scale to the drawImage so it can't distort the selection outline.
                 ctx.save()
@@ -1341,11 +1351,17 @@ class room_editor_window {
 // Default data factories
 // =========================================================================
 
+// The room_speed a freshly-created room starts at — the project's "Default room speed (new rooms)"
+// from Game Settings (each room then overrides it in its own settings). Kept in sync by index.ts.
+let _new_room_speed = 60
+/** Sets the room_speed new rooms are created with (Game Settings → Default room speed). */
+export function room_editor_set_default_speed(n: number): void { _new_room_speed = Math.max(1, Math.round(n)) || 60 }
+
 function _default_room(): room_data {
     return {
         width:             640,
         height:            480,
-        room_speed:        60,
+        room_speed:        _new_room_speed,
         persistent:        false,
         creation_code:     '',
         instances:         [],
@@ -1408,6 +1424,14 @@ function _icon_tool_btn(label: string, cb: () => void): HTMLElement {
 function _form_container(): HTMLElement {
     const el = document.createElement('div')
     el.style.cssText = 'display:flex; flex-direction:column; gap:5px; padding:8px;'
+    return el
+}
+
+/** Attaches a hover help tooltip to a field row (marks its label as having help) and returns it. */
+function _tip(el: HTMLElement, text: string): HTMLElement {
+    const lbl = el.querySelector('.sw-label, span')
+    if (lbl) (lbl as HTMLElement).classList.add('sw-has-help')
+    tooltip_attach(el, text)
     return el
 }
 

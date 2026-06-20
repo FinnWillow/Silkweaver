@@ -72,11 +72,15 @@ export function get_bbox(inst: instance, x?: number, y?: number): { left: number
     const mr = has_mask ? sprite.mask_right  : sprite.width
     const mb = has_mask ? sprite.mask_bottom : sprite.height
 
+    // min/max keeps the box well-formed under a negative scale (a flipped instance); without it a
+    // negative image_xscale gives left > right, a degenerate box that never registers a collision.
+    const x1 = px - ox + ml * sx, x2 = px - ox + mr * sx
+    const y1 = py - oy + mt * sy, y2 = py - oy + mb * sy
     return {
-        left:   px - ox + ml * sx,
-        top:    py - oy + mt * sy,
-        right:  px - ox + mr * sx,
-        bottom: py - oy + mb * sy,
+        left:   Math.min(x1, x2),
+        top:    Math.min(y1, y2),
+        right:  Math.max(x1, x2),
+        bottom: Math.max(y1, y2),
     }
 }
 

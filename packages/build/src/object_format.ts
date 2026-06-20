@@ -118,27 +118,28 @@ function _string_literal(node: ts.Expression | undefined): string | null {
 }
 
 /**
- * Collects every instance member reachable through `this.` in a class: declared instance fields
- * *plus* members created/assigned at runtime inside any event (e.g. `this.velocity = 0` in on_create,
- * read in on_step). This drives `this.` autocomplete, so a variable made in one event surfaces in all
- * the others — matching the usual split of constants on the object, runtime state in Create. Static
- * fields and method/event names are excluded (engine members are merged in separately).
+ * Collects the object's OWN variables: declared instance fields *plus* members created/assigned at
+ * runtime via the `inst.` namespace inside any event (e.g. `inst.velocity = 0` in on_create, read in
+ * on_step). This drives `inst.` autocomplete, so a variable made in one event surfaces in all the
+ * others. Static fields (object metadata) and method/event names are excluded. The engine's built-in
+ * instance API is NOT collected here — it lives on `sw.` and is typed from the engine directly — so
+ * `this.x`/`sw.x` style writes never leak into the author's own-variable list.
  */
-export function this_members(src: string): string[] {
+export function object_vars(src: string): string[] {
     const sf = _source(src); const cls = _find_class(sf)
     if (!cls) return []
     const names = new Set<string>()
     for (const m of cls.members) {
         if (ts.isPropertyDeclaration(m) && !_is_static(m)) { const n = _name_of(m); if (n) names.add(n) }
     }
-    // Any `this.<name> = …` (or compound assignment) anywhere in the class body — including nested
-    // blocks/closures — counts as an instance member the user can reference elsewhere.
+    // Any `inst.<name> = …` (or compound assignment) anywhere in the class body — including nested
+    // blocks/closures — counts as an author variable the user can reference elsewhere.
     const visit = (node: ts.Node): void => {
         if (ts.isBinaryExpression(node)
             && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
             && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
             && ts.isPropertyAccessExpression(node.left)
-            && node.left.expression.kind === ts.SyntaxKind.ThisKeyword
+            && ts.isIdentifier(node.left.expression) && node.left.expression.text === 'inst'
             && ts.isIdentifier(node.left.name)) {
             names.add(node.left.name.text)
         }
