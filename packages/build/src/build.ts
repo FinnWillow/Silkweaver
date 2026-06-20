@@ -393,6 +393,14 @@ async function _load_sprite(name: string, meta_url: string, img_base: string): P
             spr.mask_right  = (meta.mask_x || 0) + meta.mask_w
             spr.mask_bottom = (meta.mask_y || 0) + meta.mask_h
         }
+        // Scale mode (how the sprite fills a scaled area) + 9-slice border insets (sprite editor).
+        if (meta.scale_mode === 'tile' || meta.scale_mode === 'nineslice' || meta.scale_mode === 'stretch') {
+            spr.scale_mode = meta.scale_mode
+        }
+        spr.slice_left   = meta.slice_left   || 0
+        spr.slice_top    = meta.slice_top    || 0
+        spr.slice_right  = meta.slice_right  || 0
+        spr.slice_bottom = meta.slice_bottom || 0
 
         // Load all frames specified in meta.json
         const frames = meta.frames || []

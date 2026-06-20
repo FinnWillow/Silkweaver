@@ -10,6 +10,7 @@ import { texture_manager } from './texture_manager.js'
 import { font_renderer, font_resource } from './font.js'
 import { color_to_rgb_normalized, bm_normal } from './color.js'
 import type { sprite } from './sprite.js'
+import { sprite_scale_cells } from './sprite.js'
 import { set_draw_sprite_ext } from '../core/instance.js'
 import { set_frame_hooks, set_room_render_hook } from '../core/game_loop.js'
 import { resource } from '../core/resource.js'
@@ -390,15 +391,30 @@ export class renderer {
         const frame = spr.get_frame(subimg)
         if (!frame) return
         const [r, g, b] = color_to_rgb_normalized(color)
-        this.batch.add_quad_transformed(
-            x, y,
-            frame.width, frame.height,
-            spr.xoffset, spr.yoffset,
-            xscale, yscale, rot,
-            0, 0, 1, 1,
-            r, g, b, alpha,
-            frame.texture.texture
+        // Stretch (or an unscaled draw) → one transformed quad. Tile / 9-slice at a non-unit scale →
+        // a set of cells, each emitted as a quad sharing the instance pivot and rotation.
+        if (spr.scale_mode === 'stretch' || (xscale === 1 && yscale === 1)) {
+            this.batch.add_quad_transformed(
+                x, y,
+                frame.width, frame.height,
+                spr.xoffset, spr.yoffset,
+                xscale, yscale, rot,
+                0, 0, 1, 1,
+                r, g, b, alpha,
+                frame.texture.texture
+            )
+            return
+        }
+        const cells = sprite_scale_cells(
+            spr.scale_mode, frame.width, frame.height, spr.xoffset, spr.yoffset,
+            xscale, yscale, spr.slice_left, spr.slice_top, spr.slice_right, spr.slice_bottom
         )
+        const rad = -rot * (Math.PI / 180)
+        const cos = Math.cos(rad), sin = Math.sin(rad)
+        const tex = frame.texture.texture
+        for (const c of cells) {
+            this.batch.add_quad_local(x, y, c.dx0, c.dy0, c.dx1, c.dy1, cos, sin, c.u0, c.v0, c.u1, c.v1, r, g, b, alpha, tex)
+        }
     }
 
     /**

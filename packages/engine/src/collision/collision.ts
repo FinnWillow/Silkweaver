@@ -39,11 +39,17 @@ export function get_bbox(inst: instance, x?: number, y?: number): { left: number
     // A manual mask (set via mask_set_rectangle/mask_set_size) overrides the
     // sprite-derived box — this is what makes spriteless objects collide.
     if (inst.mask_manual) {
+        // Scale the mask around the origin so a scaled instance gets a scaled collider (min/max keeps
+        // the box well-formed under a negative scale, i.e. a flipped instance).
+        const sx = inst.image_xscale
+        const sy = inst.image_yscale
+        const x1 = px + inst.mask_off_left  * sx, x2 = px + inst.mask_off_right  * sx
+        const y1 = py + inst.mask_off_top   * sy, y2 = py + inst.mask_off_bottom * sy
         return {
-            left:   px + inst.mask_off_left,
-            top:    py + inst.mask_off_top,
-            right:  px + inst.mask_off_right,
-            bottom: py + inst.mask_off_bottom,
+            left:   Math.min(x1, x2),
+            top:    Math.min(y1, y2),
+            right:  Math.max(x1, x2),
+            bottom: Math.max(y1, y2),
         }
     }
 

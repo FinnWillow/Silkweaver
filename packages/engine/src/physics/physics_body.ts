@@ -311,6 +311,17 @@ export function physics_body_set_angular_velocity(body_id: number, omega: number
     Matter.Body.setAngularVelocity(body, omega)
 }
 
+/**
+ * Sets the absolute rotation of a body.
+ * @param body_id - Body ID
+ * @param angle_rad - Rotation in radians (matter.js convention: clockwise-positive in screen space)
+ */
+export function physics_body_set_angle(body_id: number, angle_rad: number): void {
+    const body = _bodies.get(body_id)
+    if (!body) return
+    Matter.Body.setAngle(body, angle_rad)
+}
+
 /** Returns the X position of a body in room pixels. */
 export function physics_body_get_x(body_id: number): number {
     return _bodies.get(body_id)?.position.x ?? 0

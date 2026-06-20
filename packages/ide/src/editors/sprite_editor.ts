@@ -17,6 +17,13 @@ import { file_watch_subscribe }                                            from 
 
 interface sprite_frame { name: string; data_url: string }
 type mask_type = 'rectangle' | 'ellipse' | 'diamond' | 'precise'
+type scale_mode = 'stretch' | 'tile' | 'nineslice'
+
+/** What the cursor has grabbed on the preview canvas. */
+type drag_handle =
+    | 'origin' | 'mask-move'
+    | 'mask-n' | 'mask-s' | 'mask-e' | 'mask-w' | 'mask-ne' | 'mask-nw' | 'mask-se' | 'mask-sw'
+    | 'slice-l' | 'slice-r' | 'slice-t' | 'slice-b'
 
 interface sprite_data {
     frames:     sprite_frame[]
@@ -30,6 +37,11 @@ interface sprite_data {
     mask_y:     number
     mask_w:     number
     mask_h:     number
+    scale_mode:   scale_mode   // how the sprite fills a scaled area (stretch/tile/9-slice)
+    slice_left:   number       // 9-slice border insets (native px), used when scale_mode === 'nineslice'
+    slice_top:    number
+    slice_right:  number
+    slice_bottom: number
 }
 
 const _open_editors = new Map<string, sprite_editor_window>()
@@ -65,7 +77,7 @@ class sprite_editor_window {
     private _cur           = 0          // displayed / selected subimage
     private _playing       = false
     private _timer:        ReturnType<typeof setInterval> | null = null
-    private _dragging:     'origin' | 'mask' | null = null
+    private _dragging:     drag_handle | null = null
     private _unwatch_sprite: (() => void) | null = null   // live-reload subscription (external/parallel edits)
     private _drag_off      = { x: 0, y: 0 }
     private _on_closed_cb:  (() => void) | null = null
@@ -93,6 +105,7 @@ class sprite_editor_window {
         this._data = {
             frames: [], origin_x: 0, origin_y: 0, width: 0, height: 0,
             anim_speed: 15, mask_type: 'rectangle', mask_x: 0, mask_y: 0, mask_w: 0, mask_h: 0,
+            scale_mode: 'stretch', slice_left: 0, slice_top: 0, slice_right: 0, slice_bottom: 0,
         }
 
         this._build_ui()
@@ -130,6 +143,7 @@ class sprite_editor_window {
         this._canvas.style.cssText = 'image-rendering:pixelated; cursor:crosshair; flex-shrink:0;'
         this._ctx = this._canvas.getContext('2d')!
         this._canvas.addEventListener('mousedown', this._on_down)
+        this._canvas.addEventListener('mousemove', this._on_hover)   // cursor feedback when not dragging
         window.addEventListener('mousemove', this._on_move)
         window.addEventListener('mouseup', this._on_up)
         this._canvas_wrap.appendChild(this._canvas)
@@ -249,6 +263,31 @@ class sprite_editor_window {
         const anim = _section('Animation')
         anim.appendChild(_prop_row('FPS:', this._data.anim_speed, (v) => { this._data.anim_speed = Math.max(1, v); this._refresh_anim(); this._save_meta() }))
         el.appendChild(anim)
+
+        // Scale mode — how this sprite fills an area when drawn scaled/stretched (room, code, UI, …).
+        const scale = _section('Scale Mode')
+        const smode = document.createElement('select')
+        smode.className = 'sw-select'
+        for (const [val, label] of [['stretch', 'Stretch'], ['tile', 'Tile'], ['nineslice', '9-slice (stretch area)']] as [scale_mode, string][]) {
+            const o = document.createElement('option'); o.value = val; o.textContent = label
+            if (val === this._data.scale_mode) o.selected = true
+            smode.appendChild(o)
+        }
+        smode.addEventListener('change', () => { this._data.scale_mode = smode.value as scale_mode; this._rebuild_props(); this._redraw(); this._save_meta() })
+        scale.appendChild(smode)
+        if (this._data.scale_mode === 'nineslice') {
+            const hint = document.createElement('div')
+            hint.style.cssText = 'color:var(--sw-text-dim); font-size:10px; margin:2px 0;'
+            hint.textContent = 'Border insets (px) kept at native size; the middle stretches.'
+            scale.appendChild(hint)
+            scale.append(
+                _prop_row('Left:',   this._data.slice_left,   (v) => { this._data.slice_left   = Math.max(0, v); this._redraw(); this._save_meta() }),
+                _prop_row('Top:',    this._data.slice_top,    (v) => { this._data.slice_top    = Math.max(0, v); this._redraw(); this._save_meta() }),
+                _prop_row('Right:',  this._data.slice_right,  (v) => { this._data.slice_right  = Math.max(0, v); this._redraw(); this._save_meta() }),
+                _prop_row('Bottom:', this._data.slice_bottom, (v) => { this._data.slice_bottom = Math.max(0, v); this._redraw(); this._save_meta() }),
+            )
+        }
+        el.appendChild(scale)
 
         return el
     }
@@ -411,8 +450,25 @@ class sprite_editor_window {
         _draw_checkerboard(ctx, this._canvas.width, this._canvas.height)
         const img = this._imgs[this._cur]
         if (img) { ctx.imageSmoothingEnabled = false; ctx.drawImage(img, 0, 0, this._canvas.width, this._canvas.height) }
-        this._draw_origin(ctx)
+        if (this._data.scale_mode === 'nineslice') this._draw_slices(ctx)
         this._draw_mask(ctx)
+        this._draw_origin(ctx)   // drawn last so the origin cross sits on top
+    }
+
+    /** Draws the 9-slice guide lines (draggable border insets) over the preview. */
+    private _draw_slices(ctx: CanvasRenderingContext2D): void {
+        const z = this._zoom, cw = this._canvas.width, ch = this._canvas.height
+        const l = this._data.slice_left * z,  r = (this._data.width  - this._data.slice_right)  * z
+        const t = this._data.slice_top  * z,  b = (this._data.height - this._data.slice_bottom) * z
+        ctx.save()
+        ctx.strokeStyle = '#ffb000'; ctx.lineWidth = 1; ctx.setLineDash([5, 3])
+        ctx.beginPath()
+        ctx.moveTo(l, 0); ctx.lineTo(l, ch)   // left inset
+        ctx.moveTo(r, 0); ctx.lineTo(r, ch)   // right inset
+        ctx.moveTo(0, t); ctx.lineTo(cw, t)   // top inset
+        ctx.moveTo(0, b); ctx.lineTo(cw, b)   // bottom inset
+        ctx.stroke()
+        ctx.restore()
     }
 
     private _clear_canvas(): void {
@@ -448,40 +504,121 @@ class sprite_editor_window {
 
     // ── Canvas drag (origin / mask) — saves only on mouse-up ───────────────────
 
-    private _canvas_pixel(e: MouseEvent): { x: number; y: number } {
+    /** Unfloored canvas position in sprite-pixel space (for hit-testing handles). */
+    private _canvas_pos(e: MouseEvent): { x: number; y: number } {
         const r = this._canvas.getBoundingClientRect()
-        return { x: Math.floor((e.clientX - r.left) / this._zoom), y: Math.floor((e.clientY - r.top) / this._zoom) }
+        return { x: (e.clientX - r.left) / this._zoom, y: (e.clientY - r.top) / this._zoom }
+    }
+
+    /** Which draggable handle sits under (x, y), by priority: origin → 9-slice lines → mask box. */
+    private _hit_test(x: number, y: number): drag_handle | null {
+        const d = this._data
+        const tol = 5 / this._zoom
+        const near = (a: number, b: number) => Math.abs(a - b) <= tol
+
+        if (near(x, d.origin_x) && near(y, d.origin_y)) return 'origin'
+
+        if (d.scale_mode === 'nineslice') {
+            const inY = y >= -tol && y <= d.height + tol
+            const inX = x >= -tol && x <= d.width + tol
+            if (inY && near(x, d.slice_left))             return 'slice-l'
+            if (inY && near(x, d.width - d.slice_right))   return 'slice-r'
+            if (inX && near(y, d.slice_top))              return 'slice-t'
+            if (inX && near(y, d.height - d.slice_bottom)) return 'slice-b'
+        }
+
+        if (d.mask_type !== 'precise' && d.mask_w > 0 && d.mask_h > 0) {
+            const l = d.mask_x, t = d.mask_y, r = d.mask_x + d.mask_w, b = d.mask_y + d.mask_h
+            const onL = near(x, l), onR = near(x, r), onT = near(y, t), onB = near(y, b)
+            const inX = x >= l - tol && x <= r + tol, inY = y >= t - tol && y <= b + tol
+            if (inX && inY) {
+                if (onT && onL) return 'mask-nw'
+                if (onT && onR) return 'mask-ne'
+                if (onB && onL) return 'mask-sw'
+                if (onB && onR) return 'mask-se'
+            }
+            if (onL && inY) return 'mask-w'
+            if (onR && inY) return 'mask-e'
+            if (onT && inX) return 'mask-n'
+            if (onB && inX) return 'mask-s'
+            if (x >= l && x <= r && y >= t && y <= b) return 'mask-move'
+        }
+        return null
+    }
+
+    /** Maps a handle to its CSS cursor. */
+    private _cursor_for(h: drag_handle | null): string {
+        switch (h) {
+            case 'origin': case 'mask-move':   return 'move'
+            case 'mask-n': case 'mask-s':      return 'ns-resize'
+            case 'mask-e': case 'mask-w':      return 'ew-resize'
+            case 'mask-ne': case 'mask-sw':    return 'nesw-resize'
+            case 'mask-nw': case 'mask-se':    return 'nwse-resize'
+            case 'slice-l': case 'slice-r':    return 'col-resize'
+            case 'slice-t': case 'slice-b':    return 'row-resize'
+            default:                           return 'default'
+        }
+    }
+
+    /** Hover (not dragging): reflect the grabbable handle under the cursor. */
+    private _on_hover = (e: MouseEvent): void => {
+        if (this._dragging || this._data.frames.length === 0) return
+        const { x, y } = this._canvas_pos(e)
+        this._canvas.style.cursor = this._cursor_for(this._hit_test(x, y))
     }
 
     private _on_down = (e: MouseEvent): void => {
         if (this._data.frames.length === 0) return
-        const { x, y } = this._canvas_pixel(e)
-        // Origin grabs first (within a few pixels), then the mask box.
-        if (Math.abs(x - this._data.origin_x) <= 2 + 2 / this._zoom && Math.abs(y - this._data.origin_y) <= 2 + 2 / this._zoom) {
-            this._dragging = 'origin'; this._drag_off = { x: x - this._data.origin_x, y: y - this._data.origin_y }; return
-        }
-        if (x >= this._data.mask_x && x <= this._data.mask_x + this._data.mask_w && y >= this._data.mask_y && y <= this._data.mask_y + this._data.mask_h) {
-            this._dragging = 'mask'; this._drag_off = { x: x - this._data.mask_x, y: y - this._data.mask_y }
-        }
+        const { x, y } = this._canvas_pos(e)
+        const h = this._hit_test(x, y)
+        if (!h) return
+        this._dragging = h
+        // Moves keep the grab offset so the handle doesn't jump; resizes/slices snap to the cursor.
+        if (h === 'origin')    this._drag_off = { x: x - this._data.origin_x, y: y - this._data.origin_y }
+        if (h === 'mask-move') this._drag_off = { x: x - this._data.mask_x,   y: y - this._data.mask_y }
+        e.preventDefault()
     }
 
     private _on_move = (e: MouseEvent): void => {
         if (!this._dragging) return
-        const { x, y } = this._canvas_pixel(e)
-        if (this._dragging === 'origin') {
-            this._data.origin_x = clamp(x - this._drag_off.x, 0, this._data.width)
-            this._data.origin_y = clamp(y - this._drag_off.y, 0, this._data.height)
-        } else {
-            this._data.mask_x = clamp(x - this._drag_off.x, 0, this._data.width - this._data.mask_w)
-            this._data.mask_y = clamp(y - this._drag_off.y, 0, this._data.height - this._data.mask_h)
+        const d = this._data
+        const { x, y } = this._canvas_pos(e)
+        const cx = clamp(Math.round(x), 0, d.width), cy = clamp(Math.round(y), 0, d.height)
+        switch (this._dragging) {
+            case 'origin':
+                d.origin_x = clamp(Math.round(x - this._drag_off.x), 0, d.width)
+                d.origin_y = clamp(Math.round(y - this._drag_off.y), 0, d.height)
+                break
+            case 'mask-move':
+                d.mask_x = clamp(Math.round(x - this._drag_off.x), 0, d.width  - d.mask_w)
+                d.mask_y = clamp(Math.round(y - this._drag_off.y), 0, d.height - d.mask_h)
+                break
+            case 'slice-l': d.slice_left   = clamp(cx, 0, d.width  - d.slice_right);   break
+            case 'slice-r': d.slice_right  = clamp(d.width  - cx, 0, d.width  - d.slice_left); break
+            case 'slice-t': d.slice_top    = clamp(cy, 0, d.height - d.slice_bottom);  break
+            case 'slice-b': d.slice_bottom = clamp(d.height - cy, 0, d.height - d.slice_top);  break
+            default:        this._resize_mask(this._dragging, cx, cy)   // a mask edge / corner
         }
         this._redraw()
+    }
+
+    /** Resizes the mask box by moving the grabbed edge(s) to the cursor, keeping the opposite side fixed. */
+    private _resize_mask(h: drag_handle, cx: number, cy: number): void {
+        const d = this._data
+        const left = d.mask_x, top = d.mask_y, right = d.mask_x + d.mask_w, bottom = d.mask_y + d.mask_h
+        const dir = h.slice(5)   // strip 'mask-' → n/s/e/w/ne/…  (avoids the 's' in "mask")
+        let nl = left, nt = top, nr = right, nb = bottom
+        if (dir.includes('w')) nl = clamp(cx, 0, right - 1)
+        if (dir.includes('e')) nr = clamp(cx, left + 1, d.width)
+        if (dir.includes('n')) nt = clamp(cy, 0, bottom - 1)
+        if (dir.includes('s')) nb = clamp(cy, top + 1, d.height)
+        d.mask_x = nl; d.mask_y = nt; d.mask_w = nr - nl; d.mask_h = nb - nt
     }
 
     private _on_up = (): void => {
         if (!this._dragging) return
         this._dragging = null
-        this._rebuild_props()   // reflect the dragged origin/mask in the inputs
+        this._rebuild_props()   // reflect the dragged origin/mask/slices in the inputs
         this._save_meta()
     }
 
@@ -604,7 +741,7 @@ class sprite_editor_window {
     private async _load_data(): Promise<void> {
         try {
             const meta = JSON.parse(await project_read_file(`sprites/${this._sprite_name}/meta.json`)) as Partial<sprite_data>
-            for (const k of ['origin_x', 'origin_y', 'width', 'height', 'anim_speed', 'mask_type', 'mask_x', 'mask_y', 'mask_w', 'mask_h'] as const) {
+            for (const k of ['origin_x', 'origin_y', 'width', 'height', 'anim_speed', 'mask_type', 'mask_x', 'mask_y', 'mask_w', 'mask_h', 'scale_mode', 'slice_left', 'slice_top', 'slice_right', 'slice_bottom'] as const) {
                 if (meta[k] !== undefined) (this._data as any)[k] = meta[k]
             }
             if (meta.frames) {
@@ -627,6 +764,8 @@ class sprite_editor_window {
             origin_x: this._data.origin_x, origin_y: this._data.origin_y,
             width: this._data.width, height: this._data.height, anim_speed: this._data.anim_speed,
             mask_type: this._data.mask_type, mask_x: this._data.mask_x, mask_y: this._data.mask_y, mask_w: this._data.mask_w, mask_h: this._data.mask_h,
+            scale_mode: this._data.scale_mode,
+            slice_left: this._data.slice_left, slice_top: this._data.slice_top, slice_right: this._data.slice_right, slice_bottom: this._data.slice_bottom,
             frames: this._data.frames.map(f => ({ name: f.name })),
         }
         // Write the meta first, THEN tell the tree to refresh — otherwise the tree reads

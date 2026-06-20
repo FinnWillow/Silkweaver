@@ -217,6 +217,53 @@ export class batch_renderer {
     }
 
     /**
+     * Adds a quad from explicit local-space destination corners (relative to a pivot) under a shared
+     * rotation. Used by tiled / 9-slice sprite drawing, where each cell has its own rect + UV but they
+     * share the instance pivot and angle. cos_a/sin_a use the same sign convention as
+     * add_quad_transformed (i.e. computed from rad = -angle_deg · π/180).
+     */
+    public add_quad_local(
+        cx: number, cy: number,
+        lx0: number, ly0: number, lx1: number, ly1: number,
+        cos_a: number, sin_a: number,
+        u0: number, v0: number, u1: number, v1: number,
+        r: number, g: number, b: number, a: number,
+        texture: WebGLTexture
+    ): void {
+        if (this.current_texture !== null && this.current_texture !== texture) {
+            this.flush()
+        }
+        this.current_texture = texture
+
+        if (this.quad_count >= MAX_QUADS) {
+            this.flush()
+        }
+
+        const tf = (lx: number, ly: number): [number, number] => [cx + lx * cos_a - ly * sin_a, cy + lx * sin_a + ly * cos_a]
+        const [tl_x, tl_y] = tf(lx0, ly0)
+        const [tr_x, tr_y] = tf(lx1, ly0)
+        const [bl_x, bl_y] = tf(lx0, ly1)
+        const [br_x, br_y] = tf(lx1, ly1)
+
+        const base = this.quad_count * FLOATS_PER_QUAD
+        const verts = this.vertices
+        const write = (off: number, px: number, py: number, u: number, v: number) => {
+            verts[off + 0] = px;  verts[off + 1] = py
+            verts[off + 2] = u;   verts[off + 3] = v
+            verts[off + 4] = r;   verts[off + 5] = g;   verts[off + 6] = b;   verts[off + 7] = a
+        }
+
+        write(base + 0,  tl_x, tl_y, u0, v0)
+        write(base + 8,  bl_x, bl_y, u0, v1)
+        write(base + 16, tr_x, tr_y, u1, v0)
+        write(base + 24, tr_x, tr_y, u1, v0)
+        write(base + 32, bl_x, bl_y, u0, v1)
+        write(base + 40, br_x, br_y, u1, v1)
+
+        this.quad_count++
+    }
+
+    /**
      * Flushes accumulated quads to the GPU with a single draw call.
      * Resets the batch state after drawing.
      */

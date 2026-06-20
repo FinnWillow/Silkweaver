@@ -17,6 +17,7 @@ import {
     physics_body_destroy, physics_body_get_x, physics_body_get_y, physics_body_get_angle,
     physics_body_get_vx, physics_body_get_vy, physics_body_set_velocity,
     physics_body_apply_force, physics_body_apply_impulse, physics_body_set_position,
+    physics_body_set_angle,
 } from "../physics/physics_body.js"
 import type { sprite } from "../drawing/sprite.js"
 import { keyboard_check, keyboard_check_pressed, keyboard_check_released, vk_anykey } from "../input/keyboard.js"
@@ -151,6 +152,11 @@ export class instance extends resource {
     private _phy_restitution: number = 0.1
     private _phy_friction:    number = 0.2
     private _phy_sensor:      boolean = false
+    // Offset from the instance origin (x,y) to the collision-mask centre, in the body's local frame.
+    // A matter.js body is centred on its position, but our origin may sit anywhere (e.g. top-left), so
+    // we bind the body at origin+offset and subtract the (rotated) offset back out when syncing.
+    private _phy_off_x:       number = 0
+    private _phy_off_y:       number = 0
 
     private _mp_dir: number = NaN   // Persisted heading for mp_potential_step (radians, screen-space)
 
@@ -800,6 +806,11 @@ export class instance extends resource {
         if (!this._phy_wants || this.phy_body_id >= 0) return
         if (!physics_world_get_engine()) return
         const { w, h } = this._phy_extent()
+        // The body is centred on its position, so bind it at the mask centre (origin + offset) rather
+        // than at the origin itself — otherwise a non-centred origin offsets the whole simulation.
+        const { ox, oy } = this._phy_origin_offset()
+        this._phy_off_x = ox
+        this._phy_off_y = oy
         const fix = physics_fixture_create()
         if (this._phy_shape === 'circle') physics_fixture_set_circle(fix, Math.max(w, h) / 2)
         else                              physics_fixture_set_box(fix, w, h)
@@ -807,29 +818,64 @@ export class instance extends resource {
         physics_fixture_set_restitution(fix, this._phy_restitution)
         physics_fixture_set_friction(fix, this._phy_friction)
         physics_fixture_set_sensor(fix, this._phy_sensor)
-        this.phy_body_id = physics_fixture_bind(fix, this.x, this.y, this._phy_density <= 0)
+        // image_angle is CCW-positive (GMS); matter is CW-positive in screen space, so negate it. The
+        // origin→centre offset is in the body's local frame, so rotate it into world space for the bind.
+        const rad = (-this.image_angle * Math.PI) / 180
+        const cos = Math.cos(rad), sin = Math.sin(rad)
+        this.phy_body_id = physics_fixture_bind(fix, this.x + (cos * ox - sin * oy), this.y + (sin * ox + cos * oy), this._phy_density <= 0)
+        if (this.image_angle !== 0) physics_body_set_angle(this.phy_body_id, rad)
         physics_fixture_delete(fix)
     }
 
     /** Syncs x/y/image_angle from the physics body. Called by the loop after stepping. */
     public phy_sync_from_body(): void {
         if (this.phy_body_id < 0) return
-        this.x           = physics_body_get_x(this.phy_body_id)
-        this.y           = physics_body_get_y(this.phy_body_id)
-        this.image_angle = physics_body_get_angle(this.phy_body_id)
+        const cx  = physics_body_get_x(this.phy_body_id)        // body centre (mask centre) in room space
+        const cy  = physics_body_get_y(this.phy_body_id)
+        const deg = physics_body_get_angle(this.phy_body_id)    // matter angle (CW-positive, screen space)
+        // Recover the origin from the centre: subtract the origin→centre offset, rotated by the body's
+        // angle (the offset is rigidly attached to the body, so it turns with it).
+        const rad = (deg * Math.PI) / 180
+        const cos = Math.cos(rad), sin = Math.sin(rad)
+        this.x           = cx - (cos * this._phy_off_x - sin * this._phy_off_y)
+        this.y           = cy - (sin * this._phy_off_x + cos * this._phy_off_y)
+        this.image_angle = -deg                                 // back to CCW-positive for drawing
     }
 
     /** The body's pixel extent: manual mask, else sprite bbox, else a 32×32 default. */
     private _phy_extent(): { w: number; h: number } {
         if (this.mask_manual) {
-            const w = this.mask_off_right - this.mask_off_left
-            const h = this.mask_off_bottom - this.mask_off_top
+            const w = (this.mask_off_right - this.mask_off_left) * Math.abs(this.image_xscale)
+            const h = (this.mask_off_bottom - this.mask_off_top) * Math.abs(this.image_yscale)
             if (w > 0 && h > 0) return { w, h }
         }
         const bw = this.bbox_right - this.bbox_left
         const bh = this.bbox_bottom - this.bbox_top
         if (bw > 0 && bh > 0) return { w: bw, h: bh }
         return { w: 32, h: 32 }
+    }
+
+    /**
+     * Offset from the instance origin (x,y) to the centre of the collision mask, in room pixels.
+     * Zero when the origin already sits at the mask centre (e.g. a centred sprite origin). Manual
+     * masks are stored as offsets from the origin; the sprite bbox is in world space, so subtract x/y.
+     */
+    private _phy_origin_offset(): { ox: number; oy: number } {
+        if (this.mask_manual) {
+            return {
+                ox: (this.mask_off_left + this.mask_off_right) / 2 * this.image_xscale,
+                oy: (this.mask_off_top  + this.mask_off_bottom) / 2 * this.image_yscale,
+            }
+        }
+        const bw = this.bbox_right - this.bbox_left
+        const bh = this.bbox_bottom - this.bbox_top
+        if (bw > 0 && bh > 0) {
+            return {
+                ox: (this.bbox_left + this.bbox_right) / 2 - this.x,
+                oy: (this.bbox_top  + this.bbox_bottom) / 2 - this.y,
+            }
+        }
+        return { ox: 0, oy: 0 }
     }
 
     /** Applies a continuous force at the body's centre (pixel-space units). */
@@ -842,9 +888,18 @@ export class instance extends resource {
         if (this.phy_body_id >= 0) physics_body_apply_impulse(this.phy_body_id, fx, fy)
     }
 
-    /** Teleports the physics body (and the instance) to a position. */
+    /** Teleports the instance so its origin lands at (x, y), moving the body centre to match. */
     public phy_set_position(x: number, y: number): void {
-        if (this.phy_body_id >= 0) physics_body_set_position(this.phy_body_id, x, y)
+        if (this.phy_body_id >= 0) {
+            // Place the body centre at origin + the (rotated) origin→centre offset, so the origin ends at (x,y).
+            const rad = (physics_body_get_angle(this.phy_body_id) * Math.PI) / 180
+            const cos = Math.cos(rad), sin = Math.sin(rad)
+            physics_body_set_position(
+                this.phy_body_id,
+                x + (cos * this._phy_off_x - sin * this._phy_off_y),
+                y + (sin * this._phy_off_x + cos * this._phy_off_y),
+            )
+        }
         this.x = x
         this.y = y
     }
@@ -1517,4 +1572,59 @@ export function collision_line(x1: number, y1: number, x2: number, y2: number, o
         if (object_match(inst, obj) && inst.active && line_in_instance(x1, y1, x2, y2, inst)) return inst
     }
     return undefined
+}
+
+// =========================================================================
+// Instance query functions (GMS-style) — reach instances of OTHER objects
+// =========================================================================
+// From inside an event, pass an object class (e.g. obj_ball) to find its live instances and read
+// their variables: `const ball = instance_nearest(this.x, this.y, obj_ball); ball?.x`. Children of
+// the class match too. Pass the base `instance` to match any object.
+
+/** An object class accepted by the instance_* queries (the class itself, e.g. obj_ball). */
+type object_arg<T extends instance = instance> = new (...args: any[]) => T
+
+/** Active instances matching `obj` (and its child objects) in the current room. */
+function _instances_of(obj: object_arg): instance[] {
+    const rm = game_loop.room
+    if (!rm) return []
+    return rm.instance_get_all().filter(i => i.active && object_match(i, obj as unknown as typeof instance))
+}
+
+/** How many active instances of `obj` are in the room (GMS `instance_number`). */
+export function instance_number(obj: object_arg): number {
+    return _instances_of(obj).length
+}
+
+/** True if at least one active instance of `obj` exists (GMS `instance_exists`). */
+export function instance_exists(obj: object_arg): boolean {
+    const rm = game_loop.room
+    return !!rm && rm.instance_get_all().some(i => i.active && object_match(i, obj as unknown as typeof instance))
+}
+
+/** The nth (0-based) active instance of `obj`, or undefined if out of range (GMS `instance_find`). */
+export function instance_find<T extends instance>(obj: object_arg<T>, n: number): T | undefined {
+    return _instances_of(obj)[n] as T | undefined
+}
+
+/** The active instance of `obj` closest to (x, y), or undefined if none (GMS `instance_nearest`). */
+export function instance_nearest<T extends instance>(x: number, y: number, obj: object_arg<T>): T | undefined {
+    let best: instance | undefined
+    let best_d = Infinity
+    for (const i of _instances_of(obj)) {
+        const dx = i.x - x, dy = i.y - y, d = dx * dx + dy * dy
+        if (d < best_d) { best_d = d; best = i }
+    }
+    return best as T | undefined
+}
+
+/** The active instance of `obj` furthest from (x, y), or undefined if none (GMS `instance_furthest`). */
+export function instance_furthest<T extends instance>(x: number, y: number, obj: object_arg<T>): T | undefined {
+    let best: instance | undefined
+    let best_d = -1
+    for (const i of _instances_of(obj)) {
+        const dx = i.x - x, dy = i.y - y, d = dx * dx + dy * dy
+        if (d > best_d) { best_d = d; best = i }
+    }
+    return best as T | undefined
 }

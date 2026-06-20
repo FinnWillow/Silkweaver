@@ -17,6 +17,14 @@ export interface sprite_frame {
 }
 
 /**
+ * How a sprite fills an area larger than its native size (when drawn scaled / stretched):
+ *   - 'stretch'   — scale the whole image to fit (the default, classic behaviour)
+ *   - 'tile'      — repeat the image at native size to fill the area
+ *   - 'nineslice' — keep the corners at native size and stretch only the edges/centre (UI panels)
+ */
+export type sprite_scale_mode = 'stretch' | 'tile' | 'nineslice'
+
+/**
  * A sprite resource containing one or more animation frames and an origin point.
  */
 export class sprite extends resource {
@@ -32,6 +40,14 @@ export class sprite extends resource {
     public mask_top:    number = -1      // Mask top edge
     public mask_right:  number = -1      // Mask right edge
     public mask_bottom: number = -1      // Mask bottom edge
+
+    // How the sprite fills a scaled area (stretch/tile/9-slice). slice_* are the 9-slice border
+    // insets in native pixels (only used when scale_mode === 'nineslice').
+    public scale_mode:   sprite_scale_mode = 'stretch'
+    public slice_left:   number = 0
+    public slice_top:    number = 0
+    public slice_right:  number = 0
+    public slice_bottom: number = 0
 
     constructor() {
         super()
@@ -67,6 +83,80 @@ export class sprite extends resource {
         const i = Math.floor(index) % this.frames.length
         return this.frames[i < 0 ? i + this.frames.length : i]
     }
+}
+
+// =========================================================================
+// Scale-mode slicing — decompose a scaled sprite into draw cells
+// =========================================================================
+
+/**
+ * One quad of a scaled sprite: a destination rectangle (in pre-rotation local pixels, with the
+ * sprite origin at 0,0) paired with the source UV rectangle (0–1) to sample from the frame.
+ */
+export interface sprite_cell {
+    dx0: number; dy0: number; dx1: number; dy1: number   // destination rect (local px, origin-relative)
+    u0:  number; v0:  number; u1:  number; v1:  number   // source UV rect (0–1)
+}
+
+const _TILE_CAP = 4096   // safety cap on tile count, so an extreme scale can't spam the batch
+
+/**
+ * Decomposes a sprite drawn at (xscale, yscale) into the cells needed for its scale_mode. The filled
+ * area is w·xscale × h·yscale, positioned so the origin (ox, oy) lands at local (0, 0). 'stretch'
+ * yields one cell; 'tile' repeats the native frame; 'nineslice' keeps corners native and stretches
+ * the edges/centre using the slice insets.
+ */
+export function sprite_scale_cells(
+    mode: sprite_scale_mode,
+    w: number, h: number, ox: number, oy: number,
+    xscale: number, yscale: number,
+    sl: number, st: number, sr: number, sb: number,
+): sprite_cell[] {
+    const W = w * xscale, H = h * yscale          // destination area size (local px)
+    const ax0 = -ox * xscale, ay0 = -oy * yscale  // area top-left in origin-relative local space
+
+    if (mode === 'tile' && w > 0 && h > 0) {
+        const cols = Math.min(_TILE_CAP, Math.ceil(W / w))
+        const rows = Math.min(_TILE_CAP, Math.ceil(H / h))
+        const cells: sprite_cell[] = []
+        for (let j = 0; j < rows; j++) {
+            const cy0 = ay0 + j * h
+            const ch  = Math.min(h, H - j * h)
+            for (let i = 0; i < cols; i++) {
+                const cx0 = ax0 + i * w
+                const cw  = Math.min(w, W - i * w)
+                cells.push({ dx0: cx0, dy0: cy0, dx1: cx0 + cw, dy1: cy0 + ch, u0: 0, v0: 0, u1: cw / w, v1: ch / h })
+            }
+        }
+        return cells
+    }
+
+    if (mode === 'nineslice' && w > 0 && h > 0) {
+        // Clamp the corner insets so opposite borders never overflow the destination area.
+        let cl = Math.max(0, sl), cr = Math.max(0, sr)
+        let ct = Math.max(0, st), cb = Math.max(0, sb)
+        if (cl + cr > W && cl + cr > 0) { const f = W / (cl + cr); cl *= f; cr *= f }
+        if (ct + cb > H && ct + cb > 0) { const f = H / (ct + cb); ct *= f; cb *= f }
+        // Source seam positions (UV) and destination seam positions (local px).
+        const ux = [0, sl / w, (w - sr) / w, 1]
+        const uy = [0, st / h, (h - sb) / h, 1]
+        const dx = [ax0, ax0 + cl, ax0 + W - cr, ax0 + W]
+        const dy = [ay0, ay0 + ct, ay0 + H - cb, ay0 + H]
+        const cells: sprite_cell[] = []
+        for (let r = 0; r < 3; r++) {
+            for (let c = 0; c < 3; c++) {
+                if (dx[c + 1]! - dx[c]! <= 0 || dy[r + 1]! - dy[r]! <= 0) continue   // skip empty bands
+                cells.push({
+                    dx0: dx[c]!, dy0: dy[r]!, dx1: dx[c + 1]!, dy1: dy[r + 1]!,
+                    u0:  ux[c]!, v0:  uy[r]!, u1:  ux[c + 1]!, v1:  uy[r + 1]!,
+                })
+            }
+        }
+        return cells
+    }
+
+    // 'stretch' (and the fallback): a single quad covering the whole area.
+    return [{ dx0: ax0, dy0: ay0, dx1: ax0 + W, dy1: ay0 + H, u0: 0, v0: 0, u1: 1, v1: 1 }]
 }
 
 // =========================================================================

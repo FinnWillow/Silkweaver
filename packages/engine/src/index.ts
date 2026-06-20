@@ -74,6 +74,11 @@ export {
     position_meeting, position_destroy,
 } from './core/instance.js'
 
+// Instance query functions — find instances of other objects (operate on the current room)
+export {
+    instance_find, instance_nearest, instance_furthest, instance_number, instance_exists,
+} from './core/instance.js'
+
 // =========================================================================
 // Drawing
 // =========================================================================

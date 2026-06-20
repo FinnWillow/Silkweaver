@@ -15,6 +15,7 @@ import { ICON }                                                    from '../icon
 import { get_project_object_names, get_project_resource_names }     from '../index.js'
 import { script_editor_open_text }                                 from './script_editor.js'
 import { project_read_file, project_write_file, project_read_binary_url, project_file_exists } from '../services/project.js'
+import { sprite_slice_cells, type scale_mode } from '../services/sprite_slice.js'
 import type {
     room_instance, room_background_layer, room_view, room_tile, room_file,
 } from '@silkweaver/project'
@@ -31,7 +32,10 @@ type room_data = room_file
 type panel_tab = 'objects' | 'settings' | 'tiles' | 'views' | 'backgrounds' | 'physics'
 
 /** A resolved sprite ready to draw: decoded image + origin + size. */
-interface sprite_render { img: HTMLImageElement; ox: number; oy: number; w: number; h: number }
+interface sprite_render {
+    img: HTMLImageElement; ox: number; oy: number; w: number; h: number
+    scale_mode: scale_mode; sl: number; st: number; sr: number; sb: number   // scale-mode + 9-slice insets
+}
 
 // =========================================================================
 // Deduplication
@@ -143,7 +147,14 @@ class room_editor_window {
             ICON.room,
             { x: 280 + off, y: 44 + off, w: 940, h: 600 },
         )
-        this._win.on_close(() => { this._close_picker(); this._on_closed_cb?.() })
+        this._win.on_close(() => {
+            this._close_picker()
+            document.removeEventListener('sw:resource_changed', this._on_resource_changed)
+            this._on_closed_cb?.()
+        })
+        // A sprite edited elsewhere (origin / scale-mode / 9-slice…) must invalidate our render cache
+        // so the canvas reflects it live.
+        document.addEventListener('sw:resource_changed', this._on_resource_changed)
 
         this._data = _default_room()
 
@@ -158,6 +169,14 @@ class room_editor_window {
 
     bring_to_front(): void { this._win.bring_to_front() }
     on_closed(cb: () => void): void { this._on_closed_cb = cb }
+
+    /** Evicts a changed sprite from the render cache so the next draw reloads its updated meta. */
+    private _on_resource_changed = (e: Event): void => {
+        const detail = (e as CustomEvent).detail as { category?: string; name?: string } | undefined
+        if (detail?.category !== 'sprites' || !detail.name) return
+        this._sprite_cache.delete(detail.name)
+        this._redraw()
+    }
 
     // ── UI ─────────────────────────────────────────────────────────────────
 
@@ -794,6 +813,7 @@ class room_editor_window {
             if (!(await project_file_exists(meta_path))) return
             const meta = JSON.parse(await project_read_file(meta_path)) as {
                 frames?: Array<{ name: string }>; origin_x?: number; origin_y?: number; width?: number; height?: number
+                scale_mode?: scale_mode; slice_left?: number; slice_top?: number; slice_right?: number; slice_bottom?: number
             }
             const first = meta.frames?.[0]
             if (!first) return
@@ -807,6 +827,8 @@ class room_editor_window {
                 oy: meta.origin_y ?? 0,
                 w:  meta.width  ?? img.naturalWidth,
                 h:  meta.height ?? img.naturalHeight,
+                scale_mode: meta.scale_mode ?? 'stretch',
+                sl: meta.slice_left ?? 0, st: meta.slice_top ?? 0, sr: meta.slice_right ?? 0, sb: meta.slice_bottom ?? 0,
             })
             this._redraw()
         } catch { /* unreadable sprite — fall back to a box */ }
@@ -1217,15 +1239,31 @@ class room_editor_window {
         const render = this._sprite_for(inst.object_name)
 
         if (render) {
+            const sxv = inst.scale_x, syv = inst.scale_y
             ctx.save()
             ctx.translate(inst.x, inst.y)
             if (inst.rotation) ctx.rotate(-inst.rotation * Math.PI / 180)   // GMS image_angle is counter-clockwise
-            ctx.scale(inst.scale_x, inst.scale_y)
-            ctx.drawImage(render.img, -render.ox, -render.oy, render.w, render.h)
+            ctx.imageSmoothingEnabled = false
+            if (render.scale_mode !== 'stretch' && (sxv !== 1 || syv !== 1)) {
+                // Tile / 9-slice: fill the W×H area with cells (no ctx.scale stretch). The area's
+                // top-left sits at the scaled origin so the sprite still anchors at the instance point.
+                const ax = -render.ox * sxv, ay = -render.oy * syv
+                for (const c of sprite_slice_cells(render.scale_mode, render.w, render.h, sxv, syv, render.sl, render.st, render.sr, render.sb)) {
+                    ctx.drawImage(render.img, c.sx, c.sy, c.sw, c.sh, ax + c.dx, ay + c.dy, c.dw, c.dh)
+                }
+            } else {
+                // Stretch: confine ctx.scale to the drawImage so it can't distort the selection outline.
+                ctx.save()
+                ctx.scale(sxv, syv)
+                ctx.drawImage(render.img, -render.ox, -render.oy, render.w, render.h)
+                ctx.restore()
+            }
+            // Selection outline — drawn in the rotated but UNSCALED frame using already-scaled
+            // dimensions, so the line stays a uniform weight for any non-uniform / negative scale.
             if (is_sel) {
                 ctx.strokeStyle = '#0078d4'
-                ctx.lineWidth   = 2 / this._zoom / Math.max(0.001, Math.abs(inst.scale_x))
-                ctx.strokeRect(-render.ox, -render.oy, render.w, render.h)
+                ctx.lineWidth   = 2 / this._zoom
+                ctx.strokeRect(-render.ox * sxv, -render.oy * syv, render.w * sxv, render.h * syv)
             }
             ctx.restore()
             // Origin marker

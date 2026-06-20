@@ -23,6 +23,21 @@ export const META_ORDER: string[] = [
     'physics', 'physics_shape', 'physics_density', 'physics_restitution', 'physics_friction', 'physics_sensor',
 ]
 
+/**
+ * Explicit type annotations for static fields whose base-class type is narrower than what TypeScript
+ * would infer from the literal initializer. Without this, `static physics_shape = 'box'` widens to
+ * `string`, which doesn't satisfy the base's `'box' | 'circle'` and the subclass fails to compile.
+ */
+const META_TYPES: Partial<Record<meta_field, string>> = {
+    physics_shape: `'box' | 'circle'`,
+}
+
+/** Renders a `static <name>[: <type>] = <expr>;` declaration, adding an annotation where one is needed. */
+function _static_decl(name: meta_field, expr: string): string {
+    const ann = META_TYPES[name]
+    return `static ${name}${ann ? `: ${ann}` : ''} = ${expr};`
+}
+
 /** Canonical GMS-style order of `on_*` event methods (used to keep events ordered in code). */
 export const EVENT_ORDER: string[] = [
     'on_create', 'on_destroy',
@@ -195,16 +210,17 @@ export function set_static(src: string, name: meta_field, expr: string): string 
     const sf = _source(src); const cls = _find_class(sf)
     if (!cls) return src
     const existing = _find_member(cls, m => ts.isPropertyDeclaration(m) && _is_static(m) && _name_of(m) === name) as ts.PropertyDeclaration | undefined
-    if (existing?.initializer) {
-        return _apply(src, { start: existing.initializer.getStart(sf), end: existing.initializer.getEnd(), text: expr })
-    }
     if (existing) {
-        // declared without initializer — replace the whole member
-        return _apply(src, { start: existing.getStart(sf), end: existing.getEnd(), text: `static ${name} = ${expr};` })
+        // For annotated fields (e.g. physics_shape) replace the whole member so the type annotation is
+        // always present/correct — updating just the initializer could leave it un-annotated (→ widens
+        // to string and fails to compile). For plain fields, the cheaper initializer-only edit is fine.
+        if (META_TYPES[name]) return _apply(src, { start: existing.getStart(sf), end: existing.getEnd(), text: _static_decl(name, expr) })
+        if (existing.initializer) return _apply(src, { start: existing.initializer.getStart(sf), end: existing.initializer.getEnd(), text: expr })
+        return _apply(src, { start: existing.getStart(sf), end: existing.getEnd(), text: _static_decl(name, expr) })
     }
     // New static: metadata lives at the TOP, ordered by META_ORDER. Insert before the first static
     // that sorts after it; else before the first non-static member (so statics stay grouped up top).
-    const stub  = `    static ${name} = ${expr};\n`
+    const stub  = `    ${_static_decl(name, expr)}\n`
     const order = META_ORDER.indexOf(name)
     if (order >= 0) {
         const after = cls.members.find(m => {
@@ -488,7 +504,7 @@ export function scaffold_object(class_name: string, kind: 'normal' | 'physics' =
     if (kind === 'physics') {
         return `export class ${class_name} extends gm_object {
     static physics = true;
-    static physics_shape = 'box';
+    static physics_shape: 'box' | 'circle' = 'box';
     static physics_density = 0.5;
     static physics_restitution = 0.1;
     static physics_friction = 0.2;
