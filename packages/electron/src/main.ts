@@ -69,13 +69,29 @@ ipcMain.on('sw:confirm-quit', () => { _allow_close = true; _win?.close() })
 // =========================================================================
 
 function create_window(): void {
+    // A lightweight splash shown immediately, covering the gap while the heavy IDE renderer loads.
+    const splash = new BrowserWindow({
+        width:  480,
+        height: 300,
+        frame:        false,
+        resizable:    false,
+        movable:      false,
+        center:       true,
+        skipTaskbar:  true,
+        alwaysOnTop:  true,
+        backgroundColor: '#1c1c1d',
+        webPreferences: { contextIsolation: true, nodeIntegration: false },
+    })
+    splash.loadFile(path.join(__dirname, '../../exports/ide/splash.html'))
+
     const win = new BrowserWindow({
         width:  1280,
         height: 800,
         minWidth:  800,
         minHeight: 600,
         title: 'Silkweaver IDE',
-        backgroundColor: '#2b2b2b',
+        backgroundColor: '#1c1c1d',
+        show: false,   // stay hidden until the renderer is ready — the splash covers the load
         webPreferences: {
             preload:          path.join(__dirname, 'preload.cjs'),
             contextIsolation: true,
@@ -85,6 +101,26 @@ function create_window(): void {
     })
 
     _win = win
+
+    // Swap splash → main window once the IDE is ready to display, but keep the splash up for at least
+    // MIN_SPLASH_MS so a fast load reads as an intentional splash rather than a flicker. A safety
+    // timeout guarantees we never get stuck on the splash if a load error means ready-to-show never fires.
+    const MIN_SPLASH_MS = 2000
+    const splashStart = Date.now()
+    let revealed = false
+    const reveal = (): void => {
+        if (revealed) return
+        revealed = true
+        const wait = Math.max(0, MIN_SPLASH_MS - (Date.now() - splashStart))
+        setTimeout(() => {
+            if (win.isDestroyed()) return
+            if (!win.isVisible()) win.show()
+            if (!splash.isDestroyed()) splash.close()
+        }, wait)
+    }
+    win.once('ready-to-show', reveal)
+    setTimeout(reveal, 12000)
+
     // Intercept the window close so the renderer can warn about unsaved changes first.
     win.on('close', (e) => {
         if (_allow_close) return
